@@ -5,6 +5,7 @@
 #include "QuadTreeBuilder.h"
 #include <sstream>
 
+#define PRECISION 40
 namespace cusg
 {
 
@@ -31,13 +32,13 @@ bool DefinitionExporter::save(ostream& out, modflow_grid_raw_data& data)
 {
     assert(data.type=="modflow_grid");
 	out<<"BEGIN MODFLOW_GRID "<<data.name<<"\n";
-	out<<"\tROTATION_ANGLE = "<<data.rotation_angle * 360 / (2*3.1415926)<<"\n";
-	out<<"\tX_OFFSET = "<<data.x_offset<<"\n";
-	out<<"\tY_OFFSET = "<<data.y_offset<<"\n";
-	out<<"\tLENGTH_UNIT = "<<data.length_unit<<"\n";
-	out<<"\tNLAY = "<<data.nlay<<"\n";
-	out<<"\tNROW = "<<data.nrow<<"\n";
-	out<<"\tNCOL = "<<data.ncol<<"\n";
+	out<<"\tROTATION_ANGLE = "<<setprecision(PRECISION)<<data.rotation_angle * 360 / (2*3.1415926)<<"\n";
+	out<<"\tX_OFFSET = "<<setprecision(PRECISION)<<data.x_offset<<"\n";
+	out<<"\tY_OFFSET = "<<setprecision(PRECISION)<<data.y_offset<<"\n";
+	out<<"\tLENGTH_UNIT = "<<setprecision(PRECISION)<<data.length_unit<<"\n";
+	out<<"\tNLAY = "<<setprecision(PRECISION)<<data.nlay<<"\n";
+	out<<"\tNROW = "<<setprecision(PRECISION)<<data.nrow<<"\n";
+	out<<"\tNCOL = "<<setprecision(PRECISION)<<data.ncol<<"\n";
 	out<<"\tDELR = "<<data.delr_str<<"\n";
 	out<<"\tDELC = "<<data.delc_str<<"\n";
 	out<<"\tTOP = "<<data.top_str<<"\n";
@@ -61,13 +62,13 @@ bool DefinitionExporter::save(ostream& out, ModflowGrid * grid)
     string delr_data_name=name+".delr.dat";
 
     out<<"BEGIN MODFLOW_GRID "<<name<<"\n";
-    out<<"\tROTATION_ANGLE = "<<grid->rotation * 360 / (2*3.1415926)<<"\n";
-    out<<"\tX_OFFSET = "<<grid->xoffset<<"\n";
-    out<<"\tY_OFFSET = "<<grid->yoffset<<"\n";
+    out<<"\tROTATION_ANGLE = "<<setprecision(PRECISION)<<grid->rotation * 360 / (2*3.1415926)<<"\n";
+    out<<"\tX_OFFSET = "<<setprecision(PRECISION)<<grid->xoffset<<"\n";
+    out<<"\tY_OFFSET = "<<setprecision(PRECISION)<<grid->yoffset<<"\n";
     //out<<"length_unit = "<<grid-><<"\n"; //not available...
-    out<<"\tNLAY = "<<grid->nlay<<"\n";
-    out<<"\tNROW = "<<grid->nrow<<"\n";
-    out<<"\tNCOL = "<<grid->ncol<<"\n";
+    out<<"\tNLAY = "<<setprecision(PRECISION)<<grid->nlay<<"\n";
+    out<<"\tNROW = "<<setprecision(PRECISION)<<grid->nrow<<"\n";
+    out<<"\tNCOL = "<<setprecision(PRECISION)<<grid->ncol<<"\n";
     out<<"\tDELR = OPEN/CLOSE "<<delr_data_name<<"\n";
     out<<"\tDELC = OPEN/CLOSE "<<delc_data_name<<"\n";
     out<<"\tTOP = OPEN/CLOSE "<<top_data_name<<"\n";
@@ -290,7 +291,7 @@ bool DefinitionExporter::save_node_coordinate(const string& prefix, Grid * grid)
 	}
 
 	//save the NACTIVECELLS and NCONNECTIONS  to the file
-	fout<<total<<"\t"<<conNum<<endl;
+	fout<<setprecision(PRECISION)<<total<<"\t"<<conNum<<endl;
 
 	vector< pair<long, Box *> > sorted_boxes;
 	sorted_boxes.reserve(total);
@@ -307,7 +308,7 @@ bool DefinitionExporter::save_node_coordinate(const string& prefix, Grid * grid)
 	for(vector< pair<long, Box *> >::iterator i=sorted_boxes.begin();i!=sorted_boxes.end();i++)
 	{
 		Box * box=i->second;
-		fout<<i->first<<" "<<box->layer+id_offset
+		fout<<setprecision(PRECISION)<<i->first<<" "<<box->layer+id_offset
             <<" "<<box->x<<" "<<box->y<<" "<<box->z<<" "
             <<box->dx<<" "<<box->dy<<" "<<box->dz<<"\n";
     }

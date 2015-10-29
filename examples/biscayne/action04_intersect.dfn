@@ -11,16 +11,6 @@ BEGIN GRID_INTERSECTION canal_grid02qtg_lay1_intersect
   OUTPUT_SHAPEFILE = output_intersection/canal_grid02qtg_lay1_intersect.shp
 END GRID_INTERSECTION
 
-BEGIN GRID_INTERSECTION poly_grid02qtg_lay1_intersect
-  GRID = grid02qtg
-  LAYER = 1
-  SHAPEFILE = shapefiles/twopolygons
-  FEATURE_TYPE = polygon
-  OUTPUT_FILE = output_intersection/poly_grid02qtg_lay1_intersect.ifo
-  ATTRIBUTES = FID
-  OUTPUT_SHAPEFILE = output_intersection/poly_grid02qtg_lay1_intersect.shp
-END GRID_INTERSECTION
-
 BEGIN GRID_INTERSECTION chd_grid02qtg_lay1_intersect
   GRID = grid02qtg
   LAYER = 1
@@ -30,15 +20,3 @@ BEGIN GRID_INTERSECTION chd_grid02qtg_lay1_intersect
   #attributes = FID
   OUTPUT_SHAPEFILE = output_intersection/chd_grid02qtg_lay1_intersect.shp
 END GRID_INTERSECTION
-
-BEGIN GRID_INTERSECTION lu2008_grid02qtg_lay1_intersect
-  GRID = grid02qtg
-  LAYER = 1
-  SHAPEFILE = shapefiles/SFWMD_2008_09_LCLU_2004FILLED_MISSING
-  FEATURE_TYPE = polygon
-  OUTPUT_FILE = output_intersection/lu2008_grid02qtg_lay1_intersect.ifo
-  ATTRIBUTES = FID
-  OUTPUT_SHAPEFILE = output_intersection/lu2008_grid02qtg_lay1_intersect.shp
-END GRID_INTERSECTION
-
-

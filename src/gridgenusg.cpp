@@ -23,7 +23,7 @@ using namespace cusg;
 #if 1
 
 #define GRIDGEN_VERSION "1.0"
-#define GRIDENG_SUB_VERSION "00"
+#define GRIDENG_SUB_VERSION "01"
 #define GRIDENG_COPYRIGHT "This program is public domain and is released on the condition that neither the U.S. Geological Survey nor the United States Government may be held liable for any damages resulting from their authorized or unauthorized use."
 
 int main(int argc, char ** argv)

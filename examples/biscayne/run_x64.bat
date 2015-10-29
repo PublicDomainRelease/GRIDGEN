@@ -12,13 +12,11 @@ rem create shapefiles for both grids
 
 rem intersect features with quadtree grid
 ..\..\bin\gridgen_x64.exe canal_grid02qtg_lay1_intersect action04_intersect.dfn
-..\..\bin\gridgen_x64.exe poly_grid02qtg_lay1_intersect action04_intersect.dfn
 ..\..\bin\gridgen_x64.exe chd_grid02qtg_lay1_intersect action04_intersect.dfn
-..\..\bin\gridgen_x64.exe lu2008_grid02qtg_lay1_intersect action04_intersect.dfn
 
 rem create a vtk file of the grid
 ..\..\bin\gridgen_x64.exe grid01mfg-to-vtkfile action05_vtkfile.dfn
 ..\..\bin\gridgen_x64.exe grid02qtg-to-vtkfile action05_vtkfile.dfn
-
+..\..\bin\gridgen_x64.exe grid02qtg-to-vtkfilesv action05_vtkfile.dfn
 
 pause
