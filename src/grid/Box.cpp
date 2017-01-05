@@ -586,6 +586,8 @@ Box * Box::find(double qx, double qy)
 	//	Point2d pt(qx, qy);
 	//	return childmfgrid->find_nodeobj(pt);
 	//}
+
+
 	assert(!isLeaf);
 
 	for(int i=0;i<4;i++){
@@ -593,7 +595,7 @@ Box * Box::find(double qx, double qy)
 			return pChildren[i]->find(qx,qy);
 	}
 
-	cerr<<"locate a box error!"<<endl;
+	cerr<<"! Error: Box::find: Locate a box error!"<<endl;
 	return NULL;
 }
 

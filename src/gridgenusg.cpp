@@ -11,7 +11,7 @@
 #include "GridToVTK.h"
 
 #include "vert_pass.h"
-
+#include "GridToVTK.h"
 
 #if GL_GUI
 #include "glDraw.h"
@@ -23,14 +23,15 @@ using namespace cusg;
 #if 1
 
 #define GRIDGEN_VERSION "1.0"
-#define GRIDENG_SUB_VERSION "01"
-#define GRIDENG_COPYRIGHT "This program is public domain and is released on the condition that neither the U.S. Geological Survey nor the United States Government may be held liable for any damages resulting from their authorized or unauthorized use."
+#define GRIDGEN_SUB_VERSION "02"
+#define GRIDGEN_DATE "January 6, 2017"
+#define GRIDGEN_COPYRIGHT "This program is public domain and is released on the condition that neither the U.S. Geological Survey nor the United States Government may be held liable for any damages resulting from their authorized or unauthorized use."
 
 int main(int argc, char ** argv)
 {
-	cout<<"GRIDGEN Version "<<GRIDGEN_VERSION<<"."<<GRIDENG_SUB_VERSION<<" "<<__DATE__<<"\n";
+	cout<<"GRIDGEN Version "<<GRIDGEN_VERSION<<"."<<GRIDGEN_SUB_VERSION<<" "<<GRIDGEN_DATE<<"\n";
 	cout<<"A program for generating unstructured grids.\n";
-	cout<<"\n"<<GRIDENG_COPYRIGHT<<"\n"<<endl;
+	cout<<"\n"<<GRIDGEN_COPYRIGHT<<"\n"<<endl;
 	
 	if(argc<3)
 	{
@@ -128,11 +129,11 @@ int main(int argc, char ** argv)
 		//save to shapefile...
 	    if(qtree_grid!=NULL)
 	    {
-	        writeQuadtree2Shp(qtree_grid, grid2shp->shapefile, grid2shp->feature_type);
+			writeQuadtree2Shp(qtree_grid, grid2shp->shapefile, grid2shp->feature_type, grid2shp->concide);
 	    }
 	    else if(modflow_grid!=NULL)
 	    {
-			writeModflowGrid2Shp(modflow_grid, grid2shp->shapefile, grid2shp->feature_type, grid2shp->without_inactive, grid2shp->one_based_node_numbering);
+			writeModflowGrid2Shp(modflow_grid, grid2shp->shapefile, grid2shp->feature_type, grid2shp->without_inactive, grid2shp->one_based_node_numbering, grid2shp->concide);
 	    }
 	    else{
 	    	cerr<<"! Error: Unknown Grid type"<<endl;
@@ -146,10 +147,12 @@ int main(int argc, char ** argv)
 	    {
 			if(grid2vtk->b_share_vertex)
 			{
-				writeQaudtreeGrid2VTK_shareV(qtree_grid, grid2vtk->vtkfile);
+				writeQuadtreeGrid2VTK_shareV(qtree_grid, grid2vtk->vtkfile);
 			}
 			else
-			    writeQaudtreeGrid2VTK(qtree_grid, grid2vtk->vtkfile);
+			{
+				writeQuadtreeGrid2VTK(qtree_grid, grid2vtk->vtkfile);
+			}
 	    }
 	    else if(modflow_grid!=NULL)
 	    {

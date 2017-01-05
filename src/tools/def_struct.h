@@ -436,6 +436,7 @@ public:
 	    feature_type="polygon";
 		one_based_node_numbering = true;
 		without_inactive = true;
+		concide = true;
 	}
 
 	virtual bool parse();
@@ -451,6 +452,9 @@ public:
 
     //actual data...
     Grid * grid;
+
+	//first and last vertex concide
+	bool concide;
 };
 
 //----------------------------------------------------------------------------

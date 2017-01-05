@@ -11,7 +11,7 @@
 
 #include "ModflowGrid2D.h"
 #include <climits>
-#define IndexEPSION 1e-6
+#define IndexEPSION 1e-10
 
 namespace cusg
 {
@@ -347,7 +347,7 @@ namespace cusg
         //get the box
         int id=get_nodeid(i,j);
 
-		if(nodegroup.empty() || id<0 || id>nodegroup.size())
+		if(nodegroup.empty() || id<0 || ((unsigned)id)>nodegroup.size())
 		{
 			cerr<<"! Error: ModflowGrid2D::find_nodeobj index out of bound"<<endl;
 			//return NULL;

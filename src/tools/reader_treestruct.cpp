@@ -40,7 +40,7 @@ void parseNodeStr(string& nodeStr, TreeStructNode& node)
 	int comIdx5 = nodeStr.find_first_of(')', comIdx4 + 1);
 	string colstr = nodeStr.substr(comIdx4 + 1,comIdx5 - comIdx4  - 1);
 
-	if(comIdx5 + 1 < nodeStr.size())
+	if((unsigned)(comIdx5 + 1) < nodeStr.size())
 	{
 		string tmpCandStr = nodeStr.substr(comIdx5 + 1,nodeStr.size() - comIdx5 - 1);
 		for(string::iterator site = tmpCandStr.begin(); site != tmpCandStr.end(); ++site)

@@ -5,14 +5,16 @@
 #include "QuadTree3D.h"
 #include "shapelib/shapefil.h"
 #include <string>
+#include <algorithm>
+#include <vector>
 using namespace std;
 using namespace cusg;
 
 //write a quadtree to a shape file
-void writeQuadtree2Shp(QuadTree3D* qtree, string shpName, string feature_type);
+void writeQuadtree2Shp(QuadTree3D* qtree, string shpName, string feature_type, bool bConcide=true);
 
 //write a modflow grid to a shape file
-void writeModflowGrid2Shp(ModflowGrid* modflow, string gridShpName, string feature_type,bool without_inactive = true, bool one_based_numbering = true);
+void writeModflowGrid2Shp(ModflowGrid* modflow, string gridShpName, string feature_type,bool without_inactive = true, bool one_based_numbering = true, bool bConcide=true);
 
 
 
@@ -54,7 +56,7 @@ void sort(
   sort(
     index_map.begin(), 
     index_map.end(), 
-    index_cmp<std::vector<T>& >(unsorted));
+    index_cmp< std::vector<T> & >(unsorted));
 }
 
 

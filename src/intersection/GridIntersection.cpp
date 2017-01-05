@@ -19,7 +19,7 @@
 using namespace std;
 
 
-#define DEBUG 0
+#define DEBUG 00
 
 namespace cusg
 {
@@ -337,14 +337,32 @@ namespace cusg
 
 	bool GridIntersection::clip_line(ModflowGrid2D * grid, const LineSeg2d& line, LineSeg2d& clipped_line)
 	{
-		int cx=grid->xoffset+grid->width/2;
-		int cy=grid->yoffset+grid->height/2;
-		Box box(cx,cy,grid->width,grid->height);
+		double cx = grid->xoffset + grid->width / 2;
+		double cy = grid->yoffset + grid->height / 2;
 
-		bool r=intersect(&box,line);
-		if(r==false) return false; //there is no intersection...
+		Box box(cx, cy, grid->width, grid->height);
 
-		clipped_line=getIntersection(&box,line);
+		bool r = intersect(&box, line);
+		if (r == false) return false; //there is no intersection...
+
+		r = getIntersection(&box, line, clipped_line);
+		if (r == false) return false; //there is no intersection...
+
+		if (box.in(clipped_line.pt[0][0], clipped_line.pt[0][1]) == false)
+		{
+			//move clipped_line.pt[0] toward clipped_line.pt[1] until the point is inside the box
+			Point2d mid((clipped_line.pt[0][0] + clipped_line.pt[1][0]) / 2, (clipped_line.pt[0][1] + clipped_line.pt[1][1]) / 2);
+			bracket_to_box_boundary(box, clipped_line.pt[0], mid);
+			clipped_line.pt[0]=mid;
+		}
+
+		if (box.in(clipped_line.pt[1][0], clipped_line.pt[1][1]) == false)
+		{
+			//move clipped_line.pt[1] toward clipped_line.pt[0]
+			Point2d mid((clipped_line.pt[0][0] + clipped_line.pt[1][0]) / 2, (clipped_line.pt[0][1] + clipped_line.pt[1][1]) / 2);
+			bracket_to_box_boundary(box, clipped_line.pt[1], mid);
+			clipped_line.pt[1] = mid;
+		}
 
 		return true;
 	}
@@ -352,6 +370,31 @@ namespace cusg
 	bool GridIntersection::clip_line(QuadTree3D * grid, const LineSeg2d& line, LineSeg2d& clipped_line)
 	{
 		return clip_line((ModflowGrid2D *)grid->getModflowGrid(),line,clipped_line);
+	}
+
+	void GridIntersection::bracket_to_box_boundary(Box & box, Point2d& out, Point2d& in) const
+	{
+		//make sure that in point is in and out point is out of box
+		if (box.in(in[0], in[1]) == false)
+		{
+			cout << "holy" << endl;
+		}
+
+		assert(box.in(in[0], in[1]));
+		assert(box.in(out[0], out[1]) == false);
+		//
+		while ( true )
+		{
+			Point2d mid((in[0] + out[0]) / 2, (in[1] + out[1]) / 2);
+			if (Equal(mid.get(), in.get())) break;
+			if (Equal(mid.get(), out.get())) break;
+
+			if (box.in(mid[0], mid[1]))
+			{
+				in = mid;
+			}
+			else out = mid;
+		}//end while
 	}
 
 	//
@@ -402,6 +445,9 @@ namespace cusg
 		bool inside=box->in(pt[0],pt[1]);
 		if(inside==false)
 		{
+			Index2d id2d = mf->getIndex(pt);
+			mf->get_nodeid(m_layer, id2d[0], id2d[1]);
+			box->in(pt[0], pt[1]);
 			cout<<"id="<<id<<" m_layer="<<m_layer<<endl;
 			cout<<"modflowGrid="<<mf<<endl;
 			cout<<"qtree_grid="<<grid<<endl;
@@ -456,6 +502,16 @@ namespace cusg
 		if( SegSegInt(lr.get(), ll.get(), s, t) ) return true;
 		if( SegSegInt(ll.get(), ul.get(), s, t) ) return true;
 
+		//JML: I am not sure if the code below is really necessary.
+		if (AreaSign(ul.get(), ur.get(), s) == 0) if (Between(ul.get(), ur.get(), s)) return true;
+		if (AreaSign(ur.get(), lr.get(), s) == 0) if (Between(ur.get(), lr.get(), s)) return true;
+		if (AreaSign(lr.get(), ll.get(), s) == 0) if (Between(lr.get(), ll.get(), s)) return true;
+		if (AreaSign(ll.get(), ul.get(), s) == 0) if (Between(ll.get(), ul.get(), s)) return true;
+		
+		if (AreaSign(ul.get(), ur.get(), t) == 0) if (Between(ul.get(), ur.get(), t)) return true;
+		if (AreaSign(ur.get(), lr.get(), t) == 0) if (Between(ur.get(), lr.get(), t)) return true;
+		if (AreaSign(lr.get(), ll.get(), t) == 0) if (Between(lr.get(), ll.get(), t)) return true;
+		if (AreaSign(ll.get(), ul.get(), t) == 0) if (Between(ll.get(), ul.get(), t)) return true;
 
 		//otherwise
 		return false;
@@ -511,7 +567,14 @@ namespace cusg
 		info.m_segID=line.m_seg_id;
 		info.m_curveID=line.m_curve_id;
 
-		LineSeg2d intseg=getIntersection(box,(LineSeg2d)line);
+		LineSeg2d intseg;
+		bool r=getIntersection(box, (LineSeg2d)line, intseg);
+
+		if (r == false)
+		{
+			cerr << "! Warning: GridIntersection::buildIntersectionInfo(Box,const GIS_LineSeg2d): Cannot find intersection information" << endl;
+			return info;
+		}
 
 		info.m_len=(intseg.pt[0]-intseg.pt[1]).norm();
 		info.m_startGeoDist=(intseg.pt[0]-line.pt[0]).norm()+line.m_start_geo_dist;
@@ -542,9 +605,8 @@ namespace cusg
 	}
 
 
-	LineSeg2d GridIntersection::getIntersection(Box * b, const LineSeg2d& line)
+	bool GridIntersection::getIntersection(Box * b, const LineSeg2d& line, LineSeg2d& intseg)
 	{
-		LineSeg2d intseg;
 
 		//check if the end points are in
 		bool vinbox[2]={false};
@@ -553,7 +615,7 @@ namespace cusg
 
 		if(vinbox[0] && vinbox[1]){
 			intseg=line;
-			return intseg;
+			return true;
 		}
 
 		//create each edge of b
@@ -570,6 +632,10 @@ namespace cusg
 		r[1]=SegSegInt(ur.get(), lr.get(), line.pt[0].get(),line.pt[1].get(),p[1].get());
 		r[2]=SegSegInt(lr.get(), ll.get(), line.pt[0].get(),line.pt[1].get(),p[2].get());
 		r[3]=SegSegInt(ll.get(), ul.get(), line.pt[0].get(),line.pt[1].get(),p[3].get());
+
+		//no intersection....
+		if ((r[0] || r[1] || r[2] || r[3]) == false)
+			return false;
 
 		if(vinbox[0] || vinbox[1])
 		{
@@ -597,7 +663,7 @@ namespace cusg
 						intseg.pt[1].set(u[1][0],u[1][1]);
 					}
 
-					return intseg;
+					return r;
 				}
 				//found the intersection...
 				const Point2d& pt1=p[i];
@@ -614,7 +680,7 @@ namespace cusg
 			}
 			//done
 
-			return intseg;
+			return true;
 		}
 
 		//count
@@ -641,14 +707,17 @@ namespace cusg
 			}
 		}
 
-		return intseg;
+		return true;
 	}
 
 	double GridIntersection::intersect_len(Box * b, const LineSeg2d& line)
 	{
 		//check if the end points are in
-		LineSeg2d intseg=getIntersection(b,line);
-		return (intseg.pt[0]-intseg.pt[1]).norm();
+		LineSeg2d intseg;
+		bool r = getIntersection(b, line, intseg);
+		if (r)
+			return (intseg.pt[0]-intseg.pt[1]).norm();
+		return 0; //no intersection...
 	}
 
 	//c_ply GridIntersection::getIntersection(Box * b, const c_ply& ply)

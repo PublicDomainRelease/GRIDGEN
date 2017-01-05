@@ -4,12 +4,11 @@
 #include <sstream>
 using namespace std;
 
-#define ZSCALE 1
-
 //int debug_num[4] = {0};
+static int ShareVID = 0;
 
 //reverse interpolate the z coordinates for all boxes
-void reverseInterpolate(QuadTree3D* qtree);
+//void reverseInterpolate(QuadTree3D* qtree);
 
 inline void rotateOneBox(Box* b, double cx, double cy, double rotation, double* padfX, double* padfY, double* padfZ, double* padfM, double* ctrX, double* ctrY)
 {
@@ -93,9 +92,10 @@ void writeVTKCell(ofstream& ofile, int boxNum)
 template<typename Dtype>
 void writeDataArray(ofstream& ofile, string type, string name, const vector<Dtype>& data)
 {
+	//typename vector<Dtype>::const_iterator DIT;
 	ofile<<"<DataArray type=\""<<type<<"\" Name=\""<<name<<"\" format=\"ascii\">";
 	int id = 0;
-	for(vector<Dtype>::const_iterator dit = data.begin(); dit != data.end(); dit++)
+	for(typename vector<Dtype>::const_iterator dit = data.begin(); dit != data.end(); dit++)
 	{
 		ofile<<(*dit)<<"\t";
 		
@@ -283,7 +283,7 @@ void DFSWriteQDT2VTK(QuadTree3D* qtree, ofstream& ofile,  int& pntNum, Box* b, i
 
 
 //write the Quadtree grid
-void writeQaudtreeGrid2VTK(QuadTree3D* qtree, string vtkName)
+void writeQuadtreeGrid2VTK(QuadTree3D* qtree, string vtkName)
 {
 	//make sure the number of the nodes are correct
 	qtree->number_nodes();
@@ -703,313 +703,132 @@ double fitZ(double** vv, double x, double y)
 	double c = (vv[1][0] - vv[0][0]) * (vv[2][1] - vv[0][1]) - (vv[2][0] - vv[0][0]) * (vv[1][1] - vv[0][1]);
 	double d = -(a * vv[0][0] + b * vv[0][1] + c * vv[0][2]);
 	
-	assert(abs(c)>=1e-10);
+	assert(fabs(c)>=1e-10);
 	double z = - (a * x + b * y + d) / c;
 	
 	return z;
 }
 
-
-///////////////////////////////////////////////////////////////////////////////////////////
-struct Share_E;
-struct Share_Box;
-
-/*
-	edge order
-		3
-		|
-		|
- 0	---------	2
-		|
-		|
-		1
-*/
-struct Share_V
+int getDepth(int n[4])
 {
-	Share_V()
+	if(n[0] == n[1] && n[1] == n[2] && n[2] == n[3])
+		return -1;
+	for(int i = 0; i < 4; i++)
 	{
-		for(int i = 0; i < 4; i++)
-		{
-			e[i] = NULL; ctr_e[i] = NULL;
-		}
-		for(int i = 0; i < 8; i++)
-			box[i] = NULL;
-		layer = num = -1;
-		is_midPnt = false;
-		parent_e = NULL;
+		if(n[i] > n[(i+1)%4])
+			return i;
 	}
-	Share_V(double x, double y)
+	assert(false);
+	return -1;
+}
+bool no_collinear_add(set<Box*>& bset, Box* b)
+{
+	if(bset.size() == 2)
 	{
-		for(int i = 0; i < 4; i++)
+		set<Box*>::iterator bit = bset.begin();
+
+		Box* b1 = *(bset.begin());
+		Box* b2 = *(++bit);
+		if(bset.find(b) == bset.end())
 		{
-			e[i] = NULL;
+			double co_eff = fabs((b2->x - b1->x) * (b->y - b1->y) - (b->x - b1->x) * (b2->y - b1->y));
+			if( co_eff < 1e-6)
+				return false;
 		}
+	}
+	bset.insert(b);
+	return true;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+//build the mfgrid ascii grid
+void build_mf_ascii(QuadTree3D* qtree, vector<mf_ascii_grid*>& top_ags, vector<mf_ascii_grid*>& bot_ags)
+{
+	ModflowGrid* mfgrid = qtree->getModflowGrid();
+
+	int csize = mfgrid->nrow * mfgrid->ncol;
+	for(int k = 0; k < mfgrid->nlay; k++)
+	{
+		double* top_zgrid = &(mfgrid->top[csize * k]);
+		double* bot_zgrid = &(mfgrid->bot[csize * k]);
+		mf_ascii_grid* top_ag = new mf_ascii_grid(mfgrid, top_zgrid, mfgrid->ncol, mfgrid->nrow); 
+		mf_ascii_grid* bot_ag = new mf_ascii_grid(mfgrid, bot_zgrid, mfgrid->ncol, mfgrid->nrow);
+		top_ags.push_back(top_ag);
+		bot_ags.push_back(bot_ag);
+	}
+}
+
+
+
+//
+// for QuadTree3D sharing Vertices
+//
+
+
+struct VTK_V
+{
+	VTK_V()
+	{
+		num = -1;
 		for(int i = 0; i < 8; i++)
 			box[i] = NULL;
-		layer = num = -1;
-		pos[0] = x; pos[1] = y;
-		is_midPnt = false;
-		parent_e = NULL;
 	}
 
 	Point3d pos;
-	Share_E* e[4];
 	Box* box[8];
-	int layer, num;
-	Share_E* ctr_e[4];//only valid for splitted box
-	bool is_midPnt;
-	Share_E* parent_e;//only valid when is_midPnt == true
+	int num;
 };
-/*
- vertex order: alway from left to right, top to bottom
- 0 --------- 1
 
- 0
- |
- |
- |
- 1
-
+/*		3
+  _____________
+		| e31
+		|
+0		*		2
+		|
+		| e13
+  -------------
+		1 
+map: map<3,1>--> e31
 */
-struct Share_E
+struct VTK_E
 {
-	Share_E(Share_V* v1, Share_V* v2)
+	VTK_E()
 	{
-		parent = NULL;
-		child[0] = child[1] = NULL;
+		child_v = NULL; 
+		v[0] = NULL; v[1] = NULL;
+		child_e[0] = NULL; child_e[1] = NULL;
+	}
+	VTK_E(VTK_V* v1, VTK_V* v2)
+	{
+		child_v = NULL; 
 		v[0] = v1; v[1] = v2;
-		box[0] = box[1] = box[2] = box[3] = NULL;
-		depth = 0;
+		child_e[0] = NULL; child_e[1] = NULL;
 	}
-	Share_E* parent;
-	Share_E* child[2];
-	Share_V* v[2]; //the two attached vertices
-	Box* box[4];//the two attached boxes, 0 for left or up, 1 for right or down(by indxe from 0 to nrow)
-	int depth;
-	//the box center enclosed by these two edges
-	map<Share_E*, Share_V*> ee2v;
+
+	VTK_V* child_v;
+	VTK_E* child_e[2];
+	VTK_V* v[2];
+
+	//
+	map<VTK_E*, VTK_E*> sub_e;
 };
 
-/*
-*	edges
-		3
-	____________
-	|			|
-0	|			|	2
-	|			|
-	------------
-		1
-*/
-struct Share_Box
+struct VTK_Box
 {
-	Share_Box()
+	VTK_Box()
 	{
 		for(int i = 0; i < 8; i++)
-		{
-			e[i] = NULL; //box[i] = NULL; 
-		}
+			e[i] = NULL;
 	}
-	Share_E* e[8];
-	//Box* box[8]; //assuming that the depth difference between two nearby boxes is at most 1
+	VTK_E* e[8];
 };
-void assignChildBoxEdge(Box* box, Share_E* es[8], Share_Box* boxdata)
+
+//
+//	build 
+//
+void buildVE(QuadTree3D* qtree, vector<VTK_V*>& vdata, vector<VTK_E*>& edata, VTK_Box* boxdata)
 {
-	for(int i = 0; i < 2; i++)
-	{
-		Share_Box& s_box = boxdata[box->pChildren[0]->id];
-
-		s_box.e[i * 4] = boxdata[box->id].e[i * 4]->child[0];
-		s_box.e[i * 4 + 1] = es[i * 4];
-		s_box.e[i * 4 + 2] = es[i * 4 + 3];
-		s_box.e[i * 4 + 3] = boxdata[box->id].e[i * 4 + 3]->child[0];
-	}
-	for(int i = 0; i < 2; i++)
-	{
-		Share_Box& s_box = boxdata[box->pChildren[3]->id];
-
-		s_box.e[i * 4] = boxdata[box->id].e[i * 4]->child[1];
-		s_box.e[i * 4 + 1] = boxdata[box->id].e[i * 4 + 1]->child[0];
-		s_box.e[i * 4 + 2] = es[i * 4 + 1];
-		s_box.e[i * 4 + 3] = es[i * 4];
-	}
-	for(int i = 0; i < 2; i++)
-	{
-		Share_Box& s_box = boxdata[box->pChildren[2]->id];
-
-		s_box.e[i * 4] = es[i * 4 + 1];
-		s_box.e[i * 4 + 1] = boxdata[box->id].e[i * 4 + 1]->child[1];
-		s_box.e[i * 4 + 2] = boxdata[box->id].e[i * 4 + 2]->child[1];
-		s_box.e[i * 4 + 3] = es[i * 4 + 2];
-	}
-	for(int i = 0; i < 2; i++)
-	{
-		Share_Box& s_box = boxdata[box->pChildren[1]->id];
-
-		s_box.e[i * 4] = es[i * 4 + 3];
-		s_box.e[i * 4 + 1] = es[i * 4 + 2];
-		s_box.e[i * 4 + 2] = boxdata[box->id].e[i * 4 + 2]->child[0];
-		s_box.e[i * 4 + 3] = boxdata[box->id].e[i * 4 + 3]->child[1];
-	}
-
-}
-//use DFS to build vertices
-void DFSBuildShareV(Box* box, vector<Share_V*>& vdata, vector<Share_E*>& edata, Share_Box* boxdata)
-{
-	if(box->isLeaf) return;
-	//break the edge into two pieces
-	for(int k = 0; k < 2; k++)
-	{
-		for(int t = 0; t < 4; t++)
-		{
-			Share_E* te = boxdata[box->id].e[k * 4 + t];
-			if(te->child[0] == NULL)
-			{
-				//break this edge
-				Share_V* nv = new Share_V((te->v[0]->pos[0] + te->v[1]->pos[0])/2, (te->v[0]->pos[1] + te->v[1]->pos[1])/2);
-				nv->layer = te->v[0]->layer;
-				vdata.push_back(nv);
-
-				Share_E* ne1 = new Share_E(te->v[0], nv);
-				Share_E* ne2 = new Share_E(nv, te->v[1]);
-				edata.push_back(ne1); edata.push_back(ne2);
-				te->child[0] = ne1; te->child[1] = ne2;
-				ne1->parent = te; ne2->parent = te;
-
-				//update the edges for v
-				if(t == 0 || t == 2) 
-				{
-					te->v[0]->e[1] = ne1; te->v[1]->e[3] = ne2;
-					nv->e[3] = ne1; nv->e[1] = ne2;
-				}
-				else
-				{
-					te->v[0]->e[2] = ne1; te->v[1]->e[0] = ne2;
-					nv->e[0] = ne1; nv->e[2] = ne2;
-				}
-			}
-		}
-	}
-	//construct the center
-	Share_V* vs[2] = {NULL};
-	Share_E* es[8] = {NULL};
-
-	for(int k = 0; k < 2; k++)
-	{
-		if(boxdata[box->id].e[k * 4]->ee2v.find(boxdata[box->id].e[k * 4 + 2]) != boxdata[box->id].e[k * 4]->ee2v.end())
-		{
-			vs[k] = boxdata[box->id].e[k * 4]->ee2v[boxdata[box->id].e[k * 4 + 2]];
-			for(int i = 0; i < 4; i++) es[k * 4 + i] = vs[k * 4 + i]->ctr_e[i];
-		}
-		else
-		{
-			vs[k] = new Share_V(box->x, box->y);
-			vdata.push_back(vs[k]);
-			vs[k]->layer = boxdata[box->id].e[k * 4]->v[0]->layer;
-			for(int i = 0; i < 4; i++)
-			{
-				if(i == 0 || i == 3)
-					es[k * 4 + i] = new Share_E(boxdata[box->id].e[k * 4 + i]->child[0]->v[1], vs[k]);
-				else
-					es[k * 4 + i] = new Share_E(vs[k], boxdata[box->id].e[k * 4 + i]->child[0]->v[1]);
-				vs[k]->ctr_e[i] = es[k * 4 + i];
-			}		
-			es[k * 4]->ee2v.insert(make_pair(es[k * 4 + 2], vs[k])); es[k * 4 + 2]->ee2v.insert(make_pair(es[k * 4], vs[k]));
-			es[k * 4 + 1]->ee2v.insert(make_pair(es[k * 4 + 3], vs[k])); es[k * 4 + 3]->ee2v.insert(make_pair(es[k * 4 + 1], vs[k]));
-
-			//update
-			for(int i = 0; i < 4; i++)
-			{
-				vs[k]->e[i] = es[k * 4 + i];
-			}
-			es[k * 4]->v[0]->e[2] = es[k * 4];
-			es[k * 4 + 1]->v[1]->e[3] = es[k * 4 + 1];
-			es[k * 4 + 2]->v[1]->e[0] = es[k * 4 + 2];
-			es[k * 4 + 3]->v[0]->e[1] = es[k * 4 + 3];
-		}
-	}
-
-	//assign the edges to child boxes
-	assignChildBoxEdge(box, es, boxdata);
-
-	for(int i = 0; i < 4; i++)
-	{
-		DFSBuildShareV(box->pChildren[i], vdata, edata, boxdata);
-	}
-}
-//determine: edges for v, boxes for e, nearby boxes for box
-void determinVEB(QuadTree3D* qtree, vector<Share_V*>& vdata, vector<Share_E*>& edata, Share_Box* boxdata)
-{
-	int bsize = qtree->nodegroup.size();
-	for(int i = 0; i < bsize; i++)
-	{
-		Box* b = qtree->nodegroup[i];
-		if(!(b->isLeaf && b->active))
-			continue;
-
-		Share_Box& s_b = boxdata[b->id];
-		//determine boxes for e
-		for(int k = 0; k < 2; k++)
-		{
-			for(int t = 0; t < 4; t++)
-			{
-				if(t == 0 || t == 3)
-					s_b.e[k * 4 + t]->box[k == 0 ? 3 : 1] = b;
-				else
-				{
-					s_b.e[k * 4 + t]->box[k == 0 ? 2 : 0] = b;
-				}
-			}
-		}
-		 
-		//determine boxes for v
-		for(int k = 0; k < 2; k++)
-		{
-			s_b.e[k * 4 + 0]->v[0]->box[(1-k) * 4 + 2] = b;
-			if(s_b.e[k * 4]->child[0] != NULL)
-				s_b.e[k * 4]->child[0]->v[1]->box[(1-k) * 4 + 2] = b;
-
-			s_b.e[k * 4 + 1]->v[0]->box[(1-k) * 4 + 3] = b;
-			if(s_b.e[k * 4 + 1]->child[0] != NULL)
-				s_b.e[k * 4 + 1]->child[0]->v[1]->box[(1-k) * 4 + 3] = b;
-
-			s_b.e[k * 4 + 2]->v[1]->box[(1-k) * 4 + 0] = b;
-			if(s_b.e[k * 4 + 2]->child[0] != NULL)
-				s_b.e[k * 4 + 2]->child[0]->v[1]->box[(1-k) * 4 + 0] = b;
-
-			s_b.e[k * 4 + 3]->v[1]->box[(1-k) * 4 + 1] = b;
-			if(s_b.e[k * 4 + 3]->child[0] != NULL)
-				s_b.e[k * 4 + 3]->child[0]->v[1]->box[(1-k) * 4 + 1] = b;
-		}
-
-		//determine the mid point 
-		for(int i = 0; i < 8; i++)
-		{
-			if(s_b.e[i]->child[0] != NULL)
-			{
-				s_b.e[i]->child[0]->v[1]->is_midPnt = true;
-				s_b.e[i]->child[0]->v[1]->parent_e = s_b.e[i];
-			}
-		}
-	}
-
-	//update 
-	for(vector<Share_E*>::iterator eit = edata.begin(); eit != edata.end(); ++eit)
-	{
-		Share_E* te = *eit;
-		for(int i = 0; i < 4; i++)
-		{
-			if(te->box[i] == NULL && te->parent != NULL && te->parent->box[i] != NULL)
-				te->box[i] = te->parent->box[i];
-		}
-	}
-}
-
-
-//build the vertices data here
-void buildSharingVertices(QuadTree3D* qtree, vector<Share_V*>& vdata, vector<Share_E*>& edata, Share_Box* boxdata)
-{
-	int bsize = qtree->nodegroup.size();
-
 	ModflowGrid* mfgrid = qtree->getModflowGrid();
 	double* Xe = mfgrid->get_local_Xe_array();
 	double* Ye = mfgrid->get_local_Ye_array();
@@ -1022,14 +841,12 @@ void buildSharingVertices(QuadTree3D* qtree, vector<Share_V*>& vdata, vector<Sha
 		{
 			for(int c = 0; c <= mfgrid->ncol; c++)
 			{
-				Share_V* nv = new Share_V();
+				VTK_V* nv = new VTK_V();
 				nv->pos[0] = Xe[c]; nv->pos[1] = Ye[r];
-				nv->layer = k;
 				vdata.push_back(nv);
 			}
 		}
 	}
-
 	//////////////////////////////////////////////////////////////////////////////
 	//initializing the sharing edge
 	int mfgrid_vsize = (mfgrid->nrow + 1) * (mfgrid->ncol + 1);
@@ -1041,10 +858,9 @@ void buildSharingVertices(QuadTree3D* qtree, vector<Share_V*>& vdata, vector<Sha
 		{
 			for(int c = 0; c < mfgrid->ncol; c++)
 			{
-				Share_V* v1 = vdata[ k * mfgrid_vsize + r * perrow_vsize + c];
-				Share_V* v2 = vdata[ k * mfgrid_vsize + r * perrow_vsize + c + 1];
-				Share_E* e = new Share_E(v1, v2);
-				v1->e[2] = e; v2->e[0] = e;
+				VTK_V* v1 = vdata[ k * mfgrid_vsize + r * perrow_vsize + c];
+				VTK_V* v2 = vdata[ k * mfgrid_vsize + r * perrow_vsize + c + 1];
+				VTK_E* e = new VTK_E(v1, v2);
 				edata.push_back(e);
 			}
 		}
@@ -1054,15 +870,152 @@ void buildSharingVertices(QuadTree3D* qtree, vector<Share_V*>& vdata, vector<Sha
 		{
 			for(int r = 0; r < mfgrid->nrow; r++)
 			{
-				Share_V* v1 = vdata[ k * mfgrid_vsize + r * perrow_vsize + c];
-				Share_V* v2 = vdata[ k * mfgrid_vsize + (r + 1) * perrow_vsize + c];
-				Share_E* e = new Share_E(v1, v2);
-				v1->e[1] = e; v1->e[3] = e;
+				VTK_V* v1 = vdata[ k * mfgrid_vsize + r * perrow_vsize + c];
+				VTK_V* v2 = vdata[ k * mfgrid_vsize + (r + 1) * perrow_vsize + c];
+				VTK_E* e = new VTK_E(v1, v2);
 				edata.push_back(e);
 			}
 		}
 	}
+}
+void assignBoxEdge(Box* box, vector<VTK_V*>& vdata, vector<VTK_E*>& edata, VTK_Box* boxdata)
+{
+	int id[4];
+	VTK_Box& vtkBox = boxdata[box->id];
+	for(int i = 0; i < 4; i++)
+		id[i] = box->pChildren[i]->id;
 
+	///////////////////////////////////////////////////////
+
+	boxdata[id[0]].e[0] = vtkBox.e[0]->child_e[0];
+	boxdata[id[0]].e[1] = vtkBox.e[0]->sub_e[vtkBox.e[2]];
+	boxdata[id[0]].e[2] = vtkBox.e[3]->sub_e[vtkBox.e[1]];
+	boxdata[id[0]].e[3] = vtkBox.e[3]->child_e[0];
+	//----------------
+	boxdata[id[0]].e[4] = vtkBox.e[4]->child_e[0];
+	boxdata[id[0]].e[5] = vtkBox.e[4]->sub_e[vtkBox.e[6]];
+	boxdata[id[0]].e[6] = vtkBox.e[7]->sub_e[vtkBox.e[5]];
+	boxdata[id[0]].e[7] = vtkBox.e[7]->child_e[0];
+
+
+	///////////////////////////////////////////////////////
+
+
+	boxdata[id[1]].e[0] = vtkBox.e[3]->sub_e[vtkBox.e[1]];
+	boxdata[id[1]].e[1] = vtkBox.e[2]->sub_e[vtkBox.e[0]];
+	boxdata[id[1]].e[2] = vtkBox.e[2]->child_e[0];
+	boxdata[id[1]].e[3] = vtkBox.e[3]->child_e[1];
+	//----
+	boxdata[id[1]].e[4] = vtkBox.e[7]->sub_e[vtkBox.e[5]];
+	boxdata[id[1]].e[5] = vtkBox.e[6]->sub_e[vtkBox.e[4]];
+	boxdata[id[1]].e[6] = vtkBox.e[6]->child_e[0];
+	boxdata[id[1]].e[7] = vtkBox.e[7]->child_e[1];
+
+	///////////////////////////////////////////////////////
+
+	boxdata[id[2]].e[0] = vtkBox.e[1]->sub_e[vtkBox.e[3]];
+	boxdata[id[2]].e[1] = vtkBox.e[1]->child_e[1];
+	boxdata[id[2]].e[2] = vtkBox.e[2]->child_e[1];
+	boxdata[id[2]].e[3] = vtkBox.e[2]->sub_e[vtkBox.e[0]];
+	//------
+	boxdata[id[2]].e[4] = vtkBox.e[5]->sub_e[vtkBox.e[7]];
+	boxdata[id[2]].e[5] = vtkBox.e[5]->child_e[1];
+	boxdata[id[2]].e[6] = vtkBox.e[6]->child_e[1];
+	boxdata[id[2]].e[7] = vtkBox.e[6]->sub_e[vtkBox.e[4]];
+
+	
+	///////////////////////////////////////////////////////
+
+	boxdata[id[3]].e[0] = vtkBox.e[0]->child_e[1];
+	boxdata[id[3]].e[1] = vtkBox.e[1]->child_e[0];
+	boxdata[id[3]].e[2] = vtkBox.e[1]->sub_e[vtkBox.e[3]];
+	boxdata[id[3]].e[3] = vtkBox.e[0]->sub_e[vtkBox.e[2]];
+	//-------------
+	boxdata[id[3]].e[4] = vtkBox.e[4]->child_e[1];
+	boxdata[id[3]].e[5] = vtkBox.e[5]->child_e[0];
+	boxdata[id[3]].e[6] = vtkBox.e[5]->sub_e[vtkBox.e[7]];
+	boxdata[id[3]].e[7] = vtkBox.e[4]->sub_e[vtkBox.e[6]];
+
+}
+void DFSbuildBox(Box* box, vector<VTK_V*>& vdata, vector<VTK_E*>& edata, VTK_Box* boxdata)
+{
+	if(box->isLeaf) return;
+
+	VTK_Box& vtkBox = boxdata[box->id];
+	for(int k = 0; k < 2; k++)
+	{
+		for(int t = 0; t < 4; t++)
+		{
+			VTK_E* te = boxdata[box->id].e[k * 4 + t];
+			if(te->child_v == NULL)
+			{
+				VTK_V* nv = new VTK_V();
+				nv->pos[0] = (te->v[0]->pos[0] + te->v[1]->pos[0])/2;
+				nv->pos[1] = (te->v[0]->pos[1] + te->v[1]->pos[1])/2;
+				vdata.push_back(nv);
+				te->child_v = nv;
+
+				VTK_E* e1 = new VTK_E(te->v[0], nv);
+				VTK_E* e2 = new VTK_E(nv, te->v[1]);
+				te->child_e[0] = e1; te->child_e[1] = e2;
+				edata.push_back(e1); edata.push_back(e2);
+			}
+		}
+	}
+
+	// determine all the edges
+	if(vtkBox.e[0]->sub_e.find(boxdata[box->id].e[2]) ==vtkBox.e[0]->sub_e.end())
+	{
+		//center v
+		VTK_V* cv1 = new VTK_V();
+		cv1->pos[0] = (vtkBox.e[0]->v[0]->pos[0] + vtkBox.e[2]->v[1]->pos[0]) / 2;
+		cv1->pos[1] = (vtkBox.e[0]->v[0]->pos[1] + vtkBox.e[2]->v[1]->pos[1]) / 2;
+
+		VTK_E* e02 = new VTK_E(vtkBox.e[0]->child_v, cv1);
+		VTK_E* e20 = new VTK_E(cv1, vtkBox.e[2]->child_v);
+		VTK_E* e31 = new VTK_E(vtkBox.e[3]->child_v, cv1);
+		VTK_E* e13 = new VTK_E(cv1, vtkBox.e[1]->child_v);
+
+		edata.push_back(e02); edata.push_back(e20); edata.push_back(e31); edata.push_back(e13);
+
+		vtkBox.e[0]->sub_e.insert(make_pair(vtkBox.e[2], e02));
+		vtkBox.e[2]->sub_e.insert(make_pair(vtkBox.e[0], e20));
+		vtkBox.e[3]->sub_e.insert(make_pair(vtkBox.e[1], e31));
+		vtkBox.e[1]->sub_e.insert(make_pair(vtkBox.e[3], e13));
+	}
+
+	if(vtkBox.e[4]->sub_e.find(vtkBox.e[6]) == vtkBox.e[4]->sub_e.end())
+	{
+		//center v
+		VTK_V* cv2 = new VTK_V();
+		cv2->pos[0] = (vtkBox.e[4]->v[0]->pos[0] + vtkBox.e[6]->v[1]->pos[0]) / 2;
+		cv2->pos[1] = (vtkBox.e[4]->v[0]->pos[1] + vtkBox.e[6]->v[1]->pos[1]) / 2;
+
+		VTK_E* e02 = new VTK_E(vtkBox.e[4]->child_v, cv2);
+		VTK_E* e20 = new VTK_E(cv2, vtkBox.e[6]->child_v);
+		VTK_E* e31 = new VTK_E(vtkBox.e[7]->child_v, cv2);
+		VTK_E* e13 = new VTK_E(cv2, vtkBox.e[5]->child_v);
+		
+		edata.push_back(e02); edata.push_back(e20); edata.push_back(e31); edata.push_back(e13);
+
+		vtkBox.e[4]->sub_e.insert(make_pair(vtkBox.e[6], e02));
+		vtkBox.e[6]->sub_e.insert(make_pair(vtkBox.e[4], e20));
+		vtkBox.e[7]->sub_e.insert(make_pair(vtkBox.e[5], e31));
+		vtkBox.e[5]->sub_e.insert(make_pair(vtkBox.e[7], e13));
+	}
+
+	//assign edges
+	assignBoxEdge(box, vdata, edata, boxdata);
+
+	//boxdata
+	for(int i = 0; i < 4; i++)
+	{
+		DFSbuildBox(box->pChildren[i], vdata, edata, boxdata);
+	}
+}
+void buildBox(QuadTree3D* qtree, vector<VTK_V*>& vdata, vector<VTK_E*>& edata, VTK_Box* boxdata)
+{
+	ModflowGrid* mfgrid = qtree->getModflowGrid();
 	/////////////////////////////////////////////////////////////////////////////////////////
 	//initialize the root box
 	int mfgrid_esize = mfgrid->ncol * ( mfgrid->nrow + 1) + mfgrid->nrow * (mfgrid->ncol + 1);
@@ -1092,8 +1045,9 @@ void buildSharingVertices(QuadTree3D* qtree, vector<Share_V*>& vdata, vector<Sha
 		}
 	}
 
-	////////////////////////////////////////////////////////////////////////////
-	//use DFS to build new vertices, edges and boxes
+
+	/////////////////////////////////////////////////////////////////////////////////////////
+	// DFS build boxes
 	for(int k = 0; k < mfgrid->nlay; k++)
 	{
 		for(int r = 0; r < mfgrid->nrow; r++)
@@ -1103,183 +1057,167 @@ void buildSharingVertices(QuadTree3D* qtree, vector<Share_V*>& vdata, vector<Sha
 				int bid = mfgrid->get_nodeid(k, r, c);
 				Box* box = qtree->nodegroup[bid];
 
-				DFSBuildShareV(box, vdata, edata, boxdata);
+				DFSbuildBox(box, vdata, edata, boxdata);
 			}
 		}
 	}
 
-	//////////////////////////////////////////////////////////////////////////
-	//determine: edges for v, boxes for e
-	determinVEB(qtree, vdata, edata, boxdata);
 }
-
-int number_Share_V(QuadTree3D* qtree, vector<Share_V*>& vdata, Share_Box* boxdata, vector<Share_V*>& node_vs)
+void buildSharing(QuadTree3D* qtree, vector<VTK_V*>& vdata, vector<VTK_E*>& edata, VTK_Box* boxdata)
 {
 	int bsize = qtree->nodegroup.size();
-	////////////////////////////////////////////////////////////////////////////// 
-	//get all the vertices that will be shared by leaf & active boxes
+
+	// build VE
+	buildVE(qtree, vdata, edata, boxdata);
+
+	//build Box
+	buildBox(qtree, vdata, edata, boxdata);
+}
+
+//
+// analysis
+//
+
+void determineVtoBox(QuadTree3D* qtree, vector<VTK_V*>& vdata, vector<VTK_E*>& edata, VTK_Box* boxdata)
+{
+	int boxNum = qtree->nodegroup.size();
+	for(int i = 0; i < boxNum; i++)
+	{
+		VTK_Box& vb = boxdata[i];
+		Box* tbox = qtree->nodegroup[i];
+		if(!(tbox->isLeaf))
+			continue;
+
+		vb.e[0]->v[0]->box[6] = tbox;
+		vb.e[0]->v[1]->box[7] = tbox;
+		vb.e[2]->v[0]->box[5] = tbox;
+		vb.e[2]->v[1]->box[4] = tbox;
+		
+		vb.e[4]->v[0]->box[2] = tbox;
+		vb.e[4]->v[1]->box[3] = tbox;
+		vb.e[6]->v[0]->box[1] = tbox;
+		vb.e[6]->v[1]->box[0] = tbox;
+
+		//child 
+		if(vb.e[0]->child_v != NULL)
+		{
+			vb.e[0]->child_v->box[6] = tbox;
+			vb.e[0]->child_v->box[7] = tbox;
+		}
+		if(vb.e[1]->child_v != NULL)
+		{
+			vb.e[1]->child_v->box[4] = tbox;
+			vb.e[1]->child_v->box[7] = tbox;
+		}
+		if(vb.e[2]->child_v != NULL)
+		{
+			vb.e[2]->child_v->box[4] = tbox;
+			vb.e[2]->child_v->box[5] = tbox;
+		}
+		if(vb.e[3]->child_v != NULL)
+		{
+			vb.e[3]->child_v->box[5] = tbox;
+			vb.e[3]->child_v->box[6] = tbox;
+		}
+
+		//child
+		if(vb.e[4]->child_v != NULL)
+		{
+			vb.e[4]->child_v->box[2] = tbox;
+			vb.e[4]->child_v->box[3] = tbox;
+		}
+		if(vb.e[5]->child_v != NULL)
+		{
+			vb.e[5]->child_v->box[0] = tbox;
+			vb.e[5]->child_v->box[3] = tbox;
+		}
+		if(vb.e[6]->child_v != NULL)
+		{
+			vb.e[6]->child_v->box[1] = tbox;
+			vb.e[6]->child_v->box[2] = tbox;
+		}
+		if(vb.e[7]->child_v != NULL)
+		{
+			vb.e[7]->child_v->box[1] = tbox;
+			vb.e[7]->child_v->box[2] = tbox;
+		}
+	}
+}
+void number_share_vtk_v(QuadTree3D* qtree, vector<VTK_V*>& vdata, VTK_Box* boxdata, vector<VTK_V*>& vtk_vertices)
+{
 	int num = 0;
+	int bsize = qtree->nodegroup.size();
+
 	for(int i = 0; i < bsize; i++)
 	{
 		Box* b = qtree->nodegroup[i];
 		if(!(b->isLeaf && b->active))
 			continue;
-		Share_Box& s_b = boxdata[b->id];
-		for(int k = 0; k < 8; k++)
+		VTK_Box& vb = boxdata[b->id];
+		for(int k = 0; k < 2; k++)
 		{
-			for(int t = 0; t <2; t++)
+			if(vb.e[0 + 4 * k]->v[0]->num == -1)
 			{
-				if(s_b.e[k]->v[t]->num == -1)
-				{
-					node_vs.push_back(s_b.e[k]->v[t]);
-					s_b.e[k]->v[t]->num = num++;
-				}
+				vb.e[0 + 4 * k]->v[0]->num = num++;
+				vtk_vertices.push_back(vb.e[0 + 4 * k]->v[0]);
 			}
-		}
-	}
-	return num;
-}
-
-int getDepth(int n[4])
-{
-	if(n[0] == n[1] && n[1] == n[2] && n[2] == n[3])
-		return -1;
-	for(int i = 0; i < 4; i++)
-	{
-		if(n[i] > n[(i+1)%4])
-			return i;
-	}
-	assert(false);
-	return -1;
-}
-bool no_collinear_add(set<Box*>& bset, Box* b)
-{
-	if(bset.size() == 2)
-	{
-		set<Box*>::iterator bit = bset.begin();
-
-		Box* b1 = *(bset.begin());
-		Box* b2 = *(++bit);
-		if(bset.find(b) == bset.end())
-		{
-			double co_eff = abs((b2->x - b1->x) * (b->y - b1->y) - (b->x - b1->x) * (b2->y - b1->y));
-			if( co_eff < 1e-6)
-				return false;
-		}
-	}
-	bset.insert(b);
-	return true;
-}
-void getVSet(Share_Box& s_box, Share_V* v[4], bool isTop)
-{
-	int prefix = (isTop ? 0 : 4);
-		v[0] = s_box.e[prefix + 0]->v[0]; v[1] = s_box.e[prefix + 1]->v[0]; v[2] = s_box.e[prefix + 2]->v[1]; v[3] = s_box.e[prefix + 3]->v[1];
-}
-void getBSet3(set<Box*>& bset, Share_Box* boxdata, bool isTop)
-{
-	while(bset.size() < 3)
-	{
-		for(set<Box*>::iterator bit = bset.begin(); bit != bset.end(); ++bit)
-		{
-			Box* tb = *bit;
-			Share_Box& s_box = boxdata[tb->id];
-			Share_V* v[4]={NULL};
-
-			getVSet(s_box, v, isTop);
-			for(int i = 0; i < 4; i++)
+			if(vb.e[0 + 4 * k]->v[1]->num == -1)
 			{
-				Share_V* stv = v[i];
-				for(int j = 0; j < 4; j++)
-				{
-					Box* b = NULL;
-					if(isTop)
-						b = stv->box[4 + j];
-					else
-						b = stv->box[j];
-					if(b != NULL && b->isLeaf && b->active)
-					{
-						bool tmp_b = no_collinear_add(bset, b);
-						if(bset.size() == 3)
-							return;
-					}
-				}
+				vb.e[0 + 4 * k]->v[1]->num = num++;
+				vtk_vertices.push_back(vb.e[0 + 4 * k]->v[1]);
+			}
+			if(vb.e[2 + 4 * k]->v[0]->num == -1)
+			{
+				vb.e[2 + 4 * k]->v[0]->num = num++;
+				vtk_vertices.push_back(vb.e[2 + 4 * k]->v[0]);
+			}
+			if(vb.e[2 + 4 * k]->v[1]->num == -1)
+			{
+				vb.e[2 + 4 * k]->v[1]->num = num++;
+				vtk_vertices.push_back(vb.e[2 + 4 * k]->v[1]);
 			}
 		}
 	}
 }
 
-//interpolate
-double interpolate_zcoord(QuadTree3D* qtree, Share_V* v, Share_Box* boxdata, bool isTop)
+//assume at most 1 depth difference
+double smooth_interpolate(vector<double>& dvals, vector<int>& depth, vector<Box*>& bs, double px, double py)
 {
-	double* zcoord = (isTop ? qtree->top : qtree->bot);
-	int prefix_bid = (isTop ? 2 : 0);
-	int prefix_eid = 0;//(isTop ? 0 : 4);
-
-	set<Box*> difset;
-	Box* s[4] = {NULL};
-	Box* attach_b[4] = {NULL};
-
-	if(isTop)
+	set<int> dset;
+	int dsize = depth.size();
+	for(int i = 0; i < dsize; i++)
 	{
-		for(int i = 0; i < 4; i++)
-			s[i] = v->box[4 + i];
+		dset.insert(depth[i]);
 	}
-	else
+	//average
+	if(dset.size() == 1 || dsize == 1)
 	{
-		for(int i = 0; i < 4; i++)
-			s[i] = v->box[i];
+		double dsum(0);
+		for(int i = 0; i < dsize; i++)
+			dsum += dvals[i];
+		return dsum/dsize;
 	}
 
-	double val = 0.0;
-	int num = 0;
-	for(int i = 0; i < 4; i++)
-		if(s[i] != NULL && s[i]->isLeaf && s[i]->active)
+	//interpolation
+	if(dsize == 4)
+	{
+		double d[2] = {0};
+		for(int k = 0; k < 2; k++)
 		{
-			if(difset.find(s[i]) == difset.end())
-			{
-				difset.insert(s[i]);
-				attach_b[num] = s[i];
-				num++;
-			}
+			if(depth[k] == depth[k + 2])
+				d[k] = (dvals[k] + dvals[k + 2])/2;
+			else if(depth[k] < depth[k + 2])
+				d[k] = (dvals[k] + dvals[k + 2]*2)/3;
+			else if(depth[k] > depth[k + 2])
+				d[k] = (dvals[k]*2 + dvals[k+2])/3;
+			else 
+				assert(false);
 		}
-
-	//debug_num[num - 1]++;
-	//if(num == 2||num == 3)
-	//{
-	//	cout<<"debugging...\n";
-	//}
-
-	if(num == 4)
-	{
-		int depth[4];
-		for(int i = 0; i < 4; i++)
-			depth[i] = attach_b[i]->depth;
-
-		 int did = getDepth(depth);
-
-		 //all 4 boxes are with same depth
-		 if(did == -1)
-		 {
-			for(int i = 0; i < 4; i++)
-				val += zcoord[attach_b[i]->number];
-			return val/4.0;
-		 }
-		
-		 //1 is smaller than other 3
-		 /*
-			|	   |
-			|-------------
-		0	|  did |
-	----------------------
-		1	|	2
-			|
-
-		 */
-		 double v1 = (2 * zcoord[attach_b[did]->number] + zcoord[attach_b[(did+1)%4]->number])/3;
-		 double v2 = (zcoord[attach_b[(did + 2)%4]->number] + zcoord[attach_b[(did+3)%4]->number])/2;
-		 val = (2 * v1 + v2)/3;
+		return (d[0] + d[1])/2;
 	}
-	else if(num == 3)
+	
+	//do a plane fitting
+	if(dsize == 3)
 	{
 		double** vv = new double*[3];
 		for(int i = 0; i < 3; i++)
@@ -1288,99 +1226,98 @@ double interpolate_zcoord(QuadTree3D* qtree, Share_V* v, Share_Box* boxdata, boo
 			memset(vv[i], 0, sizeof(double) * 3);
 		}
 
-		val = 0;
-		int tid = 0;
-		for(int i = 0;  i < 4; i++)
+		for(int i = 0; i < 3; i++)
 		{
-			if(attach_b[i] != NULL && attach_b[i]->isLeaf && attach_b[i]->active)
-			{
-				vv[tid][0] = attach_b[i]->x, vv[tid][1] = attach_b[i]->y; vv[tid][2] = zcoord[attach_b[i]->number];
-				tid++;
-			}
+			vv[i][0] = bs[i]->x; vv[i][1] = bs[i]->y; vv[i][2] = dvals[i];
 		}
 
-		val = fitZ(vv, v->pos[0], v->pos[1]);
+		double val = fitZ(vv, px, py);
+
 		for(int i = 0; i < 3; i++)
 			delete[] vv[i];
 		delete[] vv;
-	}
-	else if(num == 2)
-	{
-		double len1 = (v->pos[0] - attach_b[0]->x) * ( v->pos[0] - attach_b[0]->x) + (v->pos[1] - attach_b[0]->y) * (v->pos[1] - attach_b[0]->y);
-		double len2 = (v->pos[0] - attach_b[1]->x) * ( v->pos[0] - attach_b[1]->x) + (v->pos[1] - attach_b[1]->y) * (v->pos[1] - attach_b[1]->y);
-		val = (len1 * zcoord[attach_b[1]->number] + len2 * zcoord[attach_b[0]->number]) / (len1 + len2); 
-	}
-	else
-	{
-		val = zcoord[attach_b[0]->number];
+
+		return val;
 	}
 
-	return val;
+	if(dsize == 2)
+	{
+		if(depth[0] == depth[1])
+			return (dvals[0] + dvals[1])/2;
+		if(depth[0] < depth[1])
+			return (dvals[0] + 2*dvals[1])/3;
+		if(depth[0] > depth[1])
+			return (dvals[0]*2 + dvals[1])/3;
+	}
+	assert(false);
+	return 0;
 }
 
-//do interpolation for vertices using attached boxes
-void interpolate_shareV(QuadTree3D* qtree, Share_Box* boxdata, vector<Share_V*>& node_vs)
+void interpolate_z(QuadTree3D* qtree, vector<VTK_V*>& vdata, vector<VTK_E*>& edata, VTK_Box* boxdata, vector<VTK_V*>& vtk_vertices)
 {
-	ModflowGrid* mfgrid = qtree->getModflowGrid();
-	for(vector<Share_V*>::iterator vit = node_vs.begin(); vit != node_vs.end(); ++vit)
+	double* ztop = qtree->top;
+	double* zbot = qtree->bot;
+	for(vector<VTK_V*>::iterator vit = vtk_vertices.begin(); vit != vtk_vertices.end(); ++vit)
 	{
-		Share_V* tv = *vit;
-		if(tv->is_midPnt)
-			continue;
+		VTK_V* v = *vit;
+		set<Box*> bset1, bset2;
+		vector<double> dvals1, dvals2;
+		vector<int> depth1, depth2;
+		//vector<double> zs;
+		for(int i = 0; i < 4; i++)
+		{
+			if(v->box[i] != NULL && v->box[i]->isLeaf && v->box[i]->active)
+			{
+				if(bset1.find(v->box[i]) == bset1.end())
+				{
+					bset1.insert(v->box[i]); dvals1.push_back(zbot[v->box[i]->number]);
+					depth1.push_back(v->box[i]->depth);
+				}
+				//zs.push_back(zbot[v->box[i]->number]);
+			}
+			if(v->box[i + 4] != NULL && v->box[i + 4]->isLeaf && v->box[i + 4]->active)
+			{
+				if(bset2.find(v->box[i + 4]) == bset2.end())
+				{
+					bset2.insert(v->box[i + 4]); dvals2.push_back(ztop[v->box[i + 4]->number]);
+					depth2.push_back(v->box[i + 4]->depth);
+				}
+				//zs.push_back(ztop[v->box[i + 4]->number]);
+			}
+		}
 
-		//interpolate from the top
-		if(tv->layer == 0)
+		double dt[2] = {0};
+		//1
+		if(bset1.size() > 0)
 		{
-			tv->pos[2] = interpolate_zcoord(qtree, tv, boxdata, true);
+			vector<Box*> vb1(bset1.begin(), bset1.end());
+			dt[0] = smooth_interpolate(dvals1, depth1, vb1, v->pos[0], v->pos[1]);
 		}
-		else if(tv->layer == mfgrid->nlay)
+		//2
+		if(bset2.size() > 0)
 		{
-			tv->pos[2] = interpolate_zcoord(qtree, tv, boxdata, false);
+			vector<Box*> vb2(bset2.begin(), bset2.end());
+			dt[1] = smooth_interpolate(dvals2, depth2, vb2, v->pos[0], v->pos[1]);
 		}
-		else
-		{
-			tv->pos[2] = (interpolate_zcoord(qtree, tv, boxdata, true) + interpolate_zcoord(qtree, tv, boxdata, false))/2;
-		}
+
+		//double zsum(0);
+		//for(vector<double>::iterator dit = zs.begin(); dit != zs.end(); ++dit)
+		//{
+		//	zsum += (*dit);
+		//}
+		if(bset1.size() > 0 && bset2.size() > 0)
+			v->pos[2] = (dt[0] + dt[1])/2;
+		else if(bset1.size() > 0)
+			v->pos[2] = dt[0];
+		else 
+			v->pos[2] = dt[1];
 	}
-
-	//now we process the midPnt
-	for(vector<Share_V*>::iterator vit = node_vs.begin(); vit != node_vs.end(); ++vit)
-	{
-		Share_V* tv = *vit;
-		if(!(tv->is_midPnt))
-			continue;
-
-		tv->pos[2] = (tv->parent_e->v[0]->pos[2] + tv->parent_e->v[1]->pos[2]) / 2;
-	}
-
-	//print debug info
-	//cout<<"debug info in interpolation: \n";
-	//for(int i = 0; i < 4; i++)
-	//{
-	//	cout<<debug_num[i]<<"\n";
-	//}
-	//cout<<endl;
-
 }
 
-//build the mfgrid ascii grid
-void build_mf_ascii(QuadTree3D* qtree, vector<mf_ascii_grid*>& top_ags, vector<mf_ascii_grid*>& bot_ags)
-{
-	ModflowGrid* mfgrid = qtree->getModflowGrid();
-
-	int csize = mfgrid->nrow * mfgrid->ncol;
-	for(int k = 0; k < mfgrid->nlay; k++)
-	{
-		double* top_zgrid = &(mfgrid->top[csize * k]);
-		double* bot_zgrid = &(mfgrid->bot[csize * k]);
-		mf_ascii_grid* top_ag = new mf_ascii_grid(mfgrid, top_zgrid, mfgrid->ncol, mfgrid->nrow); 
-		mf_ascii_grid* bot_ag = new mf_ascii_grid(mfgrid, bot_zgrid, mfgrid->ncol, mfgrid->nrow);
-		top_ags.push_back(top_ag);
-		bot_ags.push_back(bot_ag);
-	}
-}
-
-void writeCells(ofstream& ofile,  vector<Box*>& allBoxes, vector<int>* intvals, vector<float>* dbvals, Share_Box* boxdata)
+//
+// write
+//
+void writeCells(ofstream& ofile,  vector<Box*>& allBoxes, vector<int>* intvals, vector<float>* dbvals, VTK_Box* boxdata)
 {
 	//ModflowGrid* mfgrid = qtree->getModflowGrid();
 	/***************************************************************************************/
@@ -1390,17 +1327,19 @@ void writeCells(ofstream& ofile,  vector<Box*>& allBoxes, vector<int>* intvals, 
 	ofile<<"<DataArray type=\"Int32\" Name=\"connectivity\" format=\"ascii\">\n";
 
 	int rid = 0;
-	Share_V* vids[8];
+	VTK_V* vids[8];
 	int cellNum = allBoxes.size();
 	for(vector<Box*>::iterator bit = allBoxes.begin(); bit != allBoxes.end(); ++bit)
 	{
 		Box* b = *bit;
-		Share_Box& s_box = boxdata[b->id];
+		VTK_Box& s_box = boxdata[b->id];
 		vids[0] = s_box.e[0]->v[0]; vids[1] = s_box.e[0]->v[1]; vids[2] = s_box.e[1]->v[1]; vids[3] = s_box.e[2]->v[0];
 		vids[4] = s_box.e[4]->v[0]; vids[5] = s_box.e[4]->v[1]; vids[6] = s_box.e[5]->v[1]; vids[7] = s_box.e[6]->v[0];
 
 		ofile<<vids[0]->num<<"\t"<<vids[1]->num<<"\t"<<vids[3]->num<<"\t"<<vids[2]->num<<"\t"
 			<<vids[4]->num<<"\t"<<vids[5]->num<<"\t"<<vids[7]->num<<"\t"<<vids[6]->num<<"\n";
+		//ofile<<vids[0]->num<<"\t"<<vids[6]->num<<"\t"<<vids[2]->num<<"\t"<<vids[4]->num<<"\t"
+		//	<<vids[1]->num<<"\t"<<vids[7]->num<<"\t"<<vids[3]->num<<"\t"<<vids[5]->num<<"\n";
 
 		rid++;
 		if(rid % 5000 == 0)
@@ -1435,40 +1374,13 @@ void writeCells(ofstream& ofile,  vector<Box*>& allBoxes, vector<int>* intvals, 
 	ofile<<"</DataArray>\n";
 	ofile<<"</Cells>\n";
 }
-
-//write the Quadtree grid with shared vertices among neighboring cells
-void writeQaudtreeGrid2VTK_shareV(QuadTree3D* qtree, string vtkName)
+void write_vtu_file(QuadTree3D* qtree, vector<VTK_V*>& vdata, vector<VTK_E*>& edata, VTK_Box* boxdata, vector<VTK_V*>& vtk_vertices, string vtkName)
 {
-	//make sure the number of the nodes are correct
-	qtree->number_nodes();
-
-	int boxNum = qtree->nodegroup.size();
-
-	vector<Share_V*> vdata;
-	vector<Share_E*> edata;
-	Share_Box* boxdata = new Share_Box[boxNum];
-
-	//build the vertices data here
-	buildSharingVertices(qtree, vdata, edata, boxdata);
-
-	//numbering vertices
-	vector<Share_V*> node_vertices;
-	int share_vnum = number_Share_V(qtree, vdata, boxdata, node_vertices);
-
-	//first reversely interpolate the modflow grid top and bot
-	//reverseInterpolate(qtree);
-	
-	//interpret the z coordinates
-	interpolate_shareV(qtree,  boxdata, node_vertices); //node_vertices);
-
-	
 	ModflowGrid* mfgrid = qtree->getModflowGrid();
 	//begin to write
 	double cx, cy, rotation;
 	mfgrid->getRotatePara(cx, cy, rotation);
 
-	/*****************************************************************************************/
-	//collect all the boxes and necessary info
 	vector<Box*> allBoxes;
 	
 	vector<string> intNames, dbNames;
@@ -1485,10 +1397,10 @@ void writeQaudtreeGrid2VTK_shareV(QuadTree3D* qtree, string vtkName)
 	dbNames.push_back("bottom"); 
 	dbNames.push_back("delr"); 
 	dbNames.push_back("delc");
+	//
+	int cellNum = collectCell_share(qtree, allBoxes, intvals, dbvals, qtree->get_one_based_node_numbering());
 
-	int cellNum  = collectCell_share(qtree,  allBoxes, intvals, dbvals, qtree->get_one_based_node_numbering());
-
-	//write the points, loop over each layer
+		//write the points, loop over each layer
 	stringstream ss0;
 	ss0<<vtkName.c_str();
 	ss0<<".vtu";
@@ -1496,15 +1408,15 @@ void writeQaudtreeGrid2VTK_shareV(QuadTree3D* qtree, string vtkName)
 	writeVTKHeader(ofile);
 	
 	/***************************************************************************************/
-	ofile<<"<Piece NumberOfPoints=\""<<node_vertices.size()<<"\" NumberOfCells=\""<<allBoxes.size()<<"\" >";
+	ofile<<"<Piece NumberOfPoints=\""<<vtk_vertices.size()<<"\" NumberOfCells=\""<<allBoxes.size()<<"\" >";
 
 	//write the points
 	ofile<<"<Points>\n";
 	ofile<<"<DataArray type=\"Float32\" NumberOfComponents=\"3\" format=\"ascii\">\n";
 	int flash = 0;
-	for(vector<Share_V*>::iterator vit = node_vertices.begin(); vit != node_vertices.end(); ++vit)
+	for(vector<VTK_V*>::iterator vit = vtk_vertices.begin(); vit != vtk_vertices.end(); ++vit)
 	{
-		Share_V* sv = *vit;
+		VTK_V* sv = *vit;
 		double resx, resy;
 		rotateOnePnt(sv->pos[0], sv->pos[1], cx, cy, rotation,resx, resy);
 
@@ -1543,96 +1455,42 @@ void writeQaudtreeGrid2VTK_shareV(QuadTree3D* qtree, string vtkName)
 	writeVTKTail(ofile);
 
 	ofile.close();
+}
 
+//
+void writeQuadtreeGrid2VTK_shareV(QuadTree3D* qtree, string vtkName)
+{
+	qtree->number_nodes();
+	
+	int boxNum = qtree->nodegroup.size();
 
+	vector<VTK_V*> vdata;
+	vector<VTK_E*> edata;
+	VTK_Box* boxdata = new VTK_Box[boxNum];
+
+	//build the sharing v
+	buildSharing(qtree, vdata, edata, boxdata);
+	//determine the neighbor boxes for v
+	determineVtoBox(qtree, vdata, edata, boxdata);
+
+	//number the vertices
+	vector<VTK_V*> vtk_vertices;
+	number_share_vtk_v(qtree, vdata,	boxdata, vtk_vertices);
+
+	//export to VTK file
+	interpolate_z(qtree, vdata, edata, boxdata, vtk_vertices);
+	
+	write_vtu_file(qtree, vdata, edata, boxdata, vtk_vertices, vtkName);
+	
 	//clear memory
-	for(vector<Share_V*>::iterator vit = vdata.begin(); vit != vdata.end(); ++vit)
+	for(vector<VTK_V*>::iterator vit = vdata.begin(); vit != vdata.end(); ++vit)
 	{
 		delete (*vit);
 	}
-	for(vector<Share_E*>::iterator eit = edata.begin(); eit != edata.end(); ++eit)
+	for(vector<VTK_E*>::iterator eit = edata.begin(); eit != edata.end(); ++eit)
 	{
 		delete (*eit);
 	}
 	delete[] boxdata; 
-}
- 
-
-//DFS add
-void DFSAdd(Box* b, list<Box*>& blist)
-{
-    blist.push_back(b);
-
-	if(b->isLeaf)
-		return;
-
-	for(int i = 0; i < 4; i++)
-	{
-		DFSAdd(b->pChildren[i], blist);
-	}
-}
-
-//reverse interpolate the z coordinates for all boxes
-void reverseInterpolate(QuadTree3D* qtree)
-{
-	int bid, bsize = qtree->nodegroup.size();
-	list<Box*> blist;
-	Box* b;
-
-	double* top = new double[bsize];
-	double* bot = new double[bsize];
-	memset(top, 0, sizeof(double) * bsize);
-	memset(bot, 0, sizeof(double) * bsize);
-
-	ModflowGrid* mfgrid = qtree->getModflowGrid();
-	//create a stack
-
-	for(int k = 0; k < mfgrid->nlay; k++)
-	{
-		for(int j = 0; j < mfgrid->nrow; j++)
-		{
-			for(int i = 0; i < mfgrid->ncol; i++)
-			{
-				bid = mfgrid->get_nodeid(k, j, i); 
-
-				b = qtree->nodegroup[bid];
-				DFSAdd(b, blist);				
-			}
-		}
-	}
-
-	//recursively use children to interpolate parent
-	for(list<Box*>::reverse_iterator bit = blist.rbegin(); bit != blist.rend(); ++bit)
-	{
-		b = *bit;
-		if(b->isLeaf)
-		{
-			top[b->id] = qtree->top[b->number];
-			bot[b->id] = qtree->bot[b->number];
-			continue;
-		}
-		//interpolate
-		top[b->id] = (top[b->pChildren[0]->id] + top[b->pChildren[1]->id] + top[b->pChildren[2]->id] + top[b->pChildren[3]->id]) / 4.0;
-		bot[b->id] = (bot[b->pChildren[0]->id] + bot[b->pChildren[1]->id] + bot[b->pChildren[2]->id] + bot[b->pChildren[3]->id]) / 4.0;
-	}
-
-	//copy back to modflow grid top and bottom
-	for(int k = 0; k < mfgrid->nlay; k++)
-	{
-		for(int j = 0; j < mfgrid->nrow; j++)
-		{
-			for(int i = 0; i < mfgrid->ncol; i++)
-			{
-				bid = mfgrid->get_nodeid(k, j, i); 
-				b = qtree->nodegroup[bid];
-				mfgrid->top[bid] = top[b->id];
-				mfgrid->bot[bid] = bot[b->id];
-			}
-		}
-	}
-
-	//clear memory
-	 delete[] top;
-	 delete[] bot;
 
 }

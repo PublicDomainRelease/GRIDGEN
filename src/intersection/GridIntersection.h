@@ -56,6 +56,13 @@ namespace cusg
 
 	struct SegmentCellIntersectionInfo
 	{
+		SegmentCellIntersectionInfo()
+		{
+			m_curveID = m_segID = -1;
+			m_len = m_startGeoDist = m_endGeoDist = 0;
+			box = NULL;
+		}
+
 		int m_curveID;         //id of the curve that contains this segment
 		int m_segID;           //id of the segment
 		double m_len;          //length of the segment inside the box
@@ -221,7 +228,7 @@ namespace cusg
 		void intersect_polygon(Box* b, const GIS_polygon& plygon,  vector<GIS_polygon*>& resultPlygons,BoxPlyClip* bpc=NULL);
 
 		//retrive detailed information
-		LineSeg2d getIntersection(Box * b, const LineSeg2d& line);
+		bool getIntersection(Box * b, const LineSeg2d& line, LineSeg2d& intseg);
 		//c_ply getIntersection(Box * b, const c_ply& ply);
 
 		//get the number of intersections...
@@ -262,6 +269,11 @@ namespace cusg
 		PointCellIntersectionInfo buildIntersectionInfo(Box * box, const GIS_Point2d& pt);
 
 		void floodGrid(Box * sb, set<Box*>& visited, list<Box*>& flooded);
+
+		//given a box and two points, one inside and one outside. 
+		//close the gap between in and out so that their distance is smaller than
+		//a given threshold
+		void bracket_to_box_boundary(Box & box, Point2d& out, Point2d& in) const;
 
 		int m_max_level;
 		int m_layer;
@@ -461,6 +473,14 @@ namespace cusg
 
 				LineSeg2d line(ptr->getPos(),next->getPos());
 				bool r=intersect(grid, line);
+
+#if DEBUGTEST
+				if (r == false)
+				{
+					intersect(grid, line);
+				}
+#endif
+
 				assert(r);
 
 				//record the relationship between the boxes and this segment
@@ -624,7 +644,10 @@ namespace cusg
 						//add by Guilin
 						//if collinear intersection
 						if(checkEdgeCollinear(b, i, line))
+						{
+							cout<<"warning: edge collinear with the line\n";
 							continue;
+						}
 
 						double epsilon=min(nb->dx,nb->dy)/1000;
 						if(intersect_len(nb,line)>epsilon) //long enough...

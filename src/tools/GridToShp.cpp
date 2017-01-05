@@ -63,13 +63,15 @@ void writeDB(int entityNum, DBFHandle& dbf,vector<int>& fieldIds, vector<int>& d
 
 //write feature and info using index
 void writeFeatEntity(Grid* grid, SHPHandle& handler, DBFHandle& dbf,vector<int>& fieldIds, vector<int>& dbIds, vector<Box*>& b_vec, vector<int> & number_vec,
-	vector<int>& l_vec, vector<int>& r_vec, vector<int>& c_vec, vector<string>& loc_vec, double cx, double cy, double rotation, int shptype, bool one_base_number, vector<size_t> sort_idx)
+	vector<int>& l_vec, vector<int>& r_vec, vector<int>& c_vec, vector<string>& loc_vec, double cx, double cy, double rotation, 
+	int shptype, bool one_base_number, vector<size_t> sort_idx, bool bConcide)
 {
 	QuadTree3D* qtree = dynamic_cast<QuadTree3D*>(grid);
 	ModflowGrid* mfgrid = dynamic_cast<ModflowGrid*>(grid);
 	bool isqtree = (qtree != NULL);
 	
-	double padfX[4] = {0}, padfY[4] = {0}, padfZ[4] = {0}, padfM[4] = {0}, ctrX[1] = {0}, ctrY[1] = {0};
+	//double padfX[4] = {0}, padfY[4] = {0}, padfZ[4] = {0}, padfM[4] = {0}, ctrX[1] = {0}, ctrY[1] = {0};
+	double padfX[5] = {0}, padfY[5] = {0}, padfZ[4] = {0}, padfM[4] = {0}, ctrX[1] = {0}, ctrY[1] = {0};
 
 	int n = sort_idx.size(), id;
 	for(int i = 0; i < n; i++)
@@ -82,7 +84,13 @@ void writeFeatEntity(Grid* grid, SHPHandle& handler, DBFHandle& dbf,vector<int>&
 		int entityNum = -1;
 		if(shptype == 1)
 		{
-			shpObj = SHPCreateSimpleObject(SHPT_POLYGON,4,padfX, padfY,NULL);
+			if(!bConcide)
+				shpObj = SHPCreateSimpleObject(SHPT_POLYGON,4,padfX, padfY,NULL);
+			else
+			{
+				padfX[4] = padfX[0]; padfY[4] = padfY[0];
+				shpObj = SHPCreateSimpleObject(SHPT_POLYGON,5,padfX, padfY,NULL);
+			}
 
 			entityNum = SHPWriteObject(handler, -1, shpObj);
 		}
@@ -96,9 +104,14 @@ void writeFeatEntity(Grid* grid, SHPHandle& handler, DBFHandle& dbf,vector<int>&
 			assert(false);
 		SHPDestroyObject(shpObj);
 
-		int l = l_vec[id]; //( one_base_number ? (l_vec[id] - 1) : l_vec[id]);
-		int r = r_vec[id]; //( one_base_number ? (r_vec[id] - 1) : r_vec[id]);
-		int c = c_vec[id]; //( one_base_number ? (c_vec[id] - 1) : c_vec[id]);
+		//int l = l_vec[id]; //( one_base_number ? (l_vec[id] - 1) : l_vec[id]);
+		//int r = r_vec[id]; //( one_base_number ? (r_vec[id] - 1) : r_vec[id]);
+		//int c = c_vec[id]; //( one_base_number ? (c_vec[id] - 1) : c_vec[id]);
+		int l = (one_base_number ? (l_vec[id] - 1) : l_vec[id]);
+		int r = ( one_base_number ? (r_vec[id] - 1) : r_vec[id]);
+		int c = ( one_base_number ? (c_vec[id] - 1) : c_vec[id]);
+
+
 		double top, bot;
 		if(isqtree)
 		{
@@ -271,7 +284,7 @@ void DFSCollect(Grid* grid, Box* b, int l,int r, int c,string& location, bool on
 //}
 
 
-void writeQuadtree2Shp(QuadTree3D* qtree, string shpName, string feature_type)
+void writeQuadtree2Shp(QuadTree3D* qtree, string shpName, string feature_type, bool bConcide)
 {
 	if(feature_type == "line")
 	{
@@ -365,7 +378,7 @@ void writeQuadtree2Shp(QuadTree3D* qtree, string shpName, string feature_type)
 
 	//write the sorted
 	writeFeatEntity(qtree, handler, dbfHandle, fieldIds, dbIds, b_vec, number_vec, l_vec, r_vec, c_vec, loc_vec, 
-		cx, cy, rotation, shptype, qtree->get_one_based_node_numbering(), sort_idx);
+		cx, cy, rotation, shptype, qtree->get_one_based_node_numbering(), sort_idx, bConcide);
 
 	//close the shape file
 	DBFClose(dbfHandle);
@@ -374,7 +387,7 @@ void writeQuadtree2Shp(QuadTree3D* qtree, string shpName, string feature_type)
 
 }
 
-void writeModflowGrid2Shp(ModflowGrid* modflow, string gridShpName, string feature_type, bool without_inactive, bool one_based_numbering)
+void writeModflowGrid2Shp(ModflowGrid* modflow, string gridShpName, string feature_type, bool without_inactive, bool one_based_numbering, bool bConcide)
 {
 	if(feature_type == "line")
 	{
@@ -463,7 +476,7 @@ void writeModflowGrid2Shp(ModflowGrid* modflow, string gridShpName, string featu
 		
 	//write the sorted
 	writeFeatEntity(modflow, handler, dbfHandle, fieldIds, dbIds, b_vec, number_vec, l_vec, r_vec, c_vec, loc_vec, 
-		cx, cy, rotation, shptype, one_based_numbering, sort_idx);
+		cx, cy, rotation, shptype, one_based_numbering, sort_idx, bConcide);
 
 
 	//close the shape file

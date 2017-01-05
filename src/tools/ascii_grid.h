@@ -69,6 +69,11 @@ class ascii_grid
 
 	double getNoDATA_value() const { return nodata_value; }
 
+	// get X and get Y
+	virtual double getX(unsigned int xid) = 0;
+
+	virtual double getY(unsigned int yid) = 0;
+	
 protected:
 
 	//The origin of the grid is the upper left and terminus at the lower right.
@@ -111,6 +116,17 @@ class mf_ascii_grid : public ascii_grid
 		cell.y=box->y;
 
 		return cell;
+	}
+
+	virtual double getX(unsigned int xid)
+	{
+		Box * box = m_mfg->find_nodeobj(xid, 0);
+		return box->x;
+	}
+	virtual double getY(unsigned int yid)
+	{
+		Box * box = m_mfg->find_nodeobj(0, yid);
+		return box->x;
 	}
 
 private:
@@ -156,7 +172,7 @@ public:
 	//
 
 	//get the x coordinate of the CENTER of a cell
-	double getX(unsigned int i)
+	virtual double getX(unsigned int i)
 	{
 		if(i>=ncols)
 		{
@@ -168,7 +184,7 @@ public:
 	}
 
 	//get the y coordinate of the CENTER of a cell
-	double getY(unsigned int i)
+	virtual double getY(unsigned int i)
 	{
 		if(i>=nrows)
 		{

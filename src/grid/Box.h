@@ -24,7 +24,7 @@
 
 using namespace std;
 
-#define INEPSION 1e-7
+#define INEPSION 1e-10
 
 #include <Point.h>
 #include <Vector.h>

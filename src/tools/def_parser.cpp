@@ -4,7 +4,7 @@ namespace cusg
 {
 
 
-template<typename T> block_raw_data* createBlockType(block_raw_data& block) { return new T(block); }
+//template<typename T> block_raw_data* createBlockType(block_raw_data& block) { return new T(block); }
 
 //-----------------------------------------------------------------------------
 //

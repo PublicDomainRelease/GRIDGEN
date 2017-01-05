@@ -318,6 +318,8 @@ protected:
 
 	public:
 		bool vertical_pass_through;
+
+		
 };
 
 ostream & operator<<(ostream& out, QuadTree3D &grid);

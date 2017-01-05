@@ -228,6 +228,7 @@ namespace cusg
 	}
 	/***********************************************************************************************************/
 	//grid and line seg intersection for Quadtree3D refinement
+#if 1
 	bool specialLineIntersect(QuadTree3D * qtree, const LineSeg2d& line, int max_level, int at_layer, vector<Box*>& results)
 	{
 		GridIntersection gi(max_level, at_layer);
@@ -244,18 +245,33 @@ namespace cusg
 		getSpecialPointIntersection(qtree, line.pt[1], max_level, at_layer, bl2);
 		
 		//now, visit b2 neighbors recursively until we reaches b1
-		set<Box*> bs;
+		set<Box*> bs; //, cur_res;
 		bs.insert(bl1.begin(), bl1.end());
 		bs.insert(bl2.begin(), bl2.end());
 
 		for(set<Box*>::iterator sit = bs.begin(); sit != bs.end(); ++sit)
 		{
 			if(isReallyIntersect(*sit, line))
+			{
 				results.push_back(*sit);
+				//cur_res.insert(*sit);
+			}
+			else
+			{
+				cerr<<"Warning: line not intersect with box actually!\n";
+			}
 		}
 
+#if 0
 		list<Box*> open(bs.begin(), bs.end());
 		set<Box*> visited(bs.begin(), bs.end());
+#else
+		//list<Box*> open(cur_res.begin(), cur_res.end());
+		//set<Box*> visited;//(cur_res.begin(), cur_res.end());
+
+		list<Box*> open(results.begin(), results.end());
+		set<Box*> visited(results.begin(), results.end());
+#endif
 
 		while(open.empty()==false) //not empty
 		{
@@ -282,18 +298,64 @@ namespace cusg
 					if( gi.intersect(nb,line) )
 					{
 						if(isReallyIntersect(nb, line))
+						{
 							results.push_back(nb);
-
-						open.push_back(nb);
-						visited.insert(nb);
+							open.push_back(nb);
+						}
 					}
+					//visited before
+					visited.insert(nb);
 				}
 			}
 
 		}//end while
 
-		return true;
+		if(results.empty() == false)
+			return true;
+		else
+			return  false;
 	}
+#endif
+
+	//void QuadTree3D::refine(LineSeg2d line, int max_level, int at_layer)
+	//{
+	//	bool refined = true;
+	//	do
+	//	{
+	//		refined = false;
+	//		GridIntersection gi(max_level, at_layer);
+	//		bool r = gi.intersect((QuadTree3D*)this, line);
+	//		//vector<Box*> results;
+	//		//bool r = specialLineIntersect(this, line, max_level, at_layer, results);
+	//		vector<Box*>& results = gi.getIntersections();
+	//		
+	//		if(r)
+	//		{
+	//			//debugging
+	//			//vector<Box*> boxes;
+	//			//specialLineIntersect(this, line, max_level, at_layer, results);
+
+	//			for(vector<Box*>::iterator i=results.begin();i!=results.end();i++)
+	//			{
+	//				Box * b=*i;
+
+	//				if(b->depth>=max_level) continue; //too deep
+
+	//				bool r=b->split(0);
+	//				assert(r); //make sure that split is successful
+
+	//				for(int c=0;c<4;c++)
+	//					nodegroup.add(b->pChildren[c]);
+
+	//				refined=true;
+	//				this->rebuild_nodeid_array=true;
+	//			}
+	//		}
+
+	//	}while(refined);
+
+	//}
+
 	
 	void QuadTree3D::refine(LineSeg2d line, int max_level, int at_layer)
 	{
@@ -305,12 +367,15 @@ namespace cusg
 			//bool r = gi.intersect((QuadTree3D*)this, line);
 			vector<Box*> results;
 			bool r = specialLineIntersect(this, line, max_level, at_layer, results);
-
+			//vector<Box*>& results = gi.getIntersections();
+			
 			if(r)
 			{
-				vector<Box*> boxes;
-				specialLineIntersect(this, line, max_level, at_layer, results);
-				for(vector<Box*>::iterator i=boxes.begin();i!=boxes.end();i++)
+				//debugging
+				//vector<Box*> boxes;
+				//specialLineIntersect(this, line, max_level, at_layer, results);
+
+				for(vector<Box*>::iterator i=results.begin();i!=results.end();i++)
 				{
 					Box * b=*i;
 
@@ -374,6 +439,8 @@ namespace cusg
 	//	while(refined);
 	//}
 
+	
+
 	void QuadTree3D::refine( c_plyline& arc, int max_level, int at_layer)
 	{
 
@@ -386,7 +453,7 @@ namespace cusg
 
 			vector<Box*> results;
 
-			//GridIntersection gi(max_level,at_layer);
+			GridIntersection gi(max_level,at_layer);
 
 			ply_vertex * ptr=arc.getHead();
 
@@ -397,11 +464,24 @@ namespace cusg
 				if(next!=NULL)
 				{
 					LineSeg2d line(ptr->getPos(),next->getPos());
+					
+#if 1
 					bool myr = specialLineIntersect(this, line, max_level, at_layer, results);
-					//bool myr=gi.intersect((QuadTree3D*)this,line);
-					if(myr) r=true;
+					if(myr)
+						r = true;
+#else
+					bool myr=gi.intersect((QuadTree3D*)this,line);
+					if(myr)
+					{
+						r=true;
+						vector<Box*>& cur_inter = gi.getIntersections();
+						results.insert(results.end(), cur_inter.begin(), cur_inter.end());
+					}
+#endif
 				}
 				ptr=next;
+
+				//break;
 			}
 			while(ptr!=NULL);
 
@@ -412,10 +492,13 @@ namespace cusg
 					Box * b=*i;
 					if(b->depth>=max_level) continue; //too deep
 
-					bool r=b->split(0);
-					if(r)
+					bool splitted=b->split(0);
+					if(splitted)
 					{
-						for(int c=0;c<4;c++) nodegroup.add(b->pChildren[c]);
+						for(int c=0;c<4;c++)
+						{
+							nodegroup.add(b->pChildren[c]);
+						}
 						refined=true;
 						this->rebuild_nodeid_array=true;
 					}
@@ -424,6 +507,7 @@ namespace cusg
 
 		}
 		while(refined);
+
 	}
 
 	//void QuadTree3D::refine( c_plyline& arc, int max_level, int at_layer)
@@ -588,7 +672,11 @@ namespace cusg
 					Box * b=*i;
 					if(b->depth>=max_level) continue; //too deep
 
-					if(!isReallyIntersect(pgon, b)) continue;//not really intersect
+					if(!isReallyIntersect(pgon, b))
+					{
+						cout<<"warning: QuadTree3D::refine( c_polygon& pgon, int max_level, int at_layer) no intersection!\n";
+						continue;//not really intersect
+					}
 
 					bool r=b->split(0);
 
@@ -1817,6 +1905,23 @@ namespace cusg
 		//interpolate here
 		return bilinear_interpolation(pt2, ag);
 	}
+
+	//// GL: bilinear interploation 
+	//double QuadTree3D::bilinear_interpolation(const Point2d& pt, ascii_grid * ag)
+	//{
+	//	Index2d id = ag->getIndex(pt[0], pt[1]);
+	//	Index2d id1 = ag->getIndex(pt[0], pt[1]);
+
+	//	int i=nrows-1-floor((y-yllcorner)/cellsize);
+	//	int j=floor((x-xllcorner)/cellsize);
+
+	//
+	
+	//	assert(false);
+	//	return 0;
+	//}
+
+
 	
 	//linear interploation the value of the center of the box
 	double QuadTree3D::bilinear_interpolation(const Point2d& pt, ascii_grid * ag)
@@ -1826,6 +1931,62 @@ namespace cusg
 		//get the ag cell that contains pt
 		Index2d id=ag->getIndex(pt[0],pt[1]);
 
+#if 1
+		// return nodata when the point is out of bound...
+
+		ascii_grid_cell cell=ag->getCell(id[0],id[1]);
+			
+
+		//
+		if(pt[0]<cell.x && id[1]>0 ) id[1]--;
+		//if(pt[1]<=cell.y && id[0]<(int)ag->getnrows()-1 ) id[0]++;
+		//if(pt[1]>=cell.y && id[0]<(int)ag->getnrows()-1 ) id[0]++;
+		if(pt[1]>cell.y && id[0]>0 ) id[0]--;
+
+		//if(pt[1]<=cell.y && id[0]>0 ) id[0]--;
+		
+		cell=ag->getCell(id[0],id[1]);
+
+		//bilinear_interpolation
+		double x= (pt[0]-cell.x)/cell.dx;
+		double y= (cell.y-pt[1])/cell.dy;
+		//double y= (pt[1]-cell.y)/cell.dy;
+
+
+		if(x<0 || x>1 || y<0 || y>1)
+		{
+			Index2d id=ag->getIndex(pt[0],pt[1]);
+			{
+				if(x<0) x=0;
+				else if(x>1) x=1;
+				if(y<0) y=0;
+				else if(y>1) y=1;
+			}
+			//cout<<"degenerate case: "<<x<<", "<<y<<endl;
+		}
+
+
+		//if(x<0 || x>1 || y<0 || y>1) 
+		//{
+		//	Index2d id=ag->getIndex(pt[0],pt[1]);
+
+		//	//if(id[1]>0 && id[0]<ag->getnrows()-1 )
+		//	//{
+		//		//cout<<"Error:QuadTree3D::bilinear_interpolation: Index out of bound: x="<<x<<" y="<<y<<endl;
+		//		//Index2d id=ag->getIndex(pt[0],pt[1]);
+		//	//}
+		//	//else //
+		//	{
+		//		if(x<0) x=0;
+		//		else if(x>1) x=1;
+		//		if(y<0) y=0;
+		//		else if(y>1) y=1;
+		//	}
+
+		//}
+
+		return cusg::bilinear_interpolation(ag,id[0],id[1],x,y);
+#else
 		// return nodata when the point is out of bound...
 
 #if 0   // turn off this for now... 
@@ -1842,6 +2003,8 @@ namespace cusg
 		//
 		if(pt[0]<=cell.x && id[1]>0 ) id[1]--;
 		if(pt[1]<=cell.y && id[0]<(int)ag->getnrows()-1 ) id[0]++;
+		//if(pt[1]>=cell.y && id[0]<(int)ag->getnrows()-1 ) id[0]++;
+
 		//if(pt[1]<=cell.y && id[0]>0 ) id[0]--;
 		
 		cell=ag->getCell(id[0],id[1]);
@@ -1870,6 +2033,8 @@ namespace cusg
 		}
 
 		return cusg::bilinear_interpolation(ag,id[0],id[1],x,y);
+#endif
+
 	}
 
 }//end of namespace

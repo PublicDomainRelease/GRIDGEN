@@ -4,10 +4,25 @@
 #include "QuadTree3D.h"
 #include "QuadTreeBuilder.h"
 #include <sstream>
+#include <algorithm>
+#include <vector>
 
 #define PRECISION 40
 namespace cusg
 {
+
+inline void rotateOneBox_exporter(Box* b, double cx, double cy, double rotation, double* padfX, double* padfY, double* padfZ, double* padfM, double* ctrX, double* ctrY)
+{
+	double ldX, ldY, luX, luY, rdX, rdY, ruX, ruY, ctrx, ctry;
+	b->rotate(cx, cy, rotation, ldX, ldY, luX, luY, rdX, rdY, ruX, ruY);
+	b->rotateCtr(cx, cy, rotation, ctrx, ctry);
+
+	padfX[0] = luX; padfX[1] = ruX;
+	padfX[2] = rdX; padfX[3] = ldX;
+	padfY[0] = luY; padfY[1] = ruY;
+	padfY[2] = rdY; padfY[3] = ldY;
+	ctrX[0] = ctrx; ctrY[0] = ctry;
+}
 
 inline ostream& operator<<(ostream& out, list<string>& strlist)
 {
@@ -36,9 +51,9 @@ bool DefinitionExporter::save(ostream& out, modflow_grid_raw_data& data)
 	out<<"\tX_OFFSET = "<<setprecision(PRECISION)<<data.x_offset<<"\n";
 	out<<"\tY_OFFSET = "<<setprecision(PRECISION)<<data.y_offset<<"\n";
 	out<<"\tLENGTH_UNIT = "<<setprecision(PRECISION)<<data.length_unit<<"\n";
-	out<<"\tNLAY = "<<setprecision(PRECISION)<<data.nlay<<"\n";
-	out<<"\tNROW = "<<setprecision(PRECISION)<<data.nrow<<"\n";
-	out<<"\tNCOL = "<<setprecision(PRECISION)<<data.ncol<<"\n";
+	out<<"\tNLAY = "<<data.nlay<<"\n";
+	out<<"\tNROW = "<<data.nrow<<"\n";
+	out<<"\tNCOL = "<<data.ncol<<"\n";
 	out<<"\tDELR = "<<data.delr_str<<"\n";
 	out<<"\tDELC = "<<data.delc_str<<"\n";
 	out<<"\tTOP = "<<data.top_str<<"\n";
@@ -66,9 +81,9 @@ bool DefinitionExporter::save(ostream& out, ModflowGrid * grid)
     out<<"\tX_OFFSET = "<<setprecision(PRECISION)<<grid->xoffset<<"\n";
     out<<"\tY_OFFSET = "<<setprecision(PRECISION)<<grid->yoffset<<"\n";
     //out<<"length_unit = "<<grid-><<"\n"; //not available...
-    out<<"\tNLAY = "<<setprecision(PRECISION)<<grid->nlay<<"\n";
-    out<<"\tNROW = "<<setprecision(PRECISION)<<grid->nrow<<"\n";
-    out<<"\tNCOL = "<<setprecision(PRECISION)<<grid->ncol<<"\n";
+    out<<"\tNLAY = "<<grid->nlay<<"\n";
+    out<<"\tNROW = "<<grid->nrow<<"\n";
+    out<<"\tNCOL = "<<grid->ncol<<"\n";
     out<<"\tDELR = OPEN/CLOSE "<<delr_data_name<<"\n";
     out<<"\tDELC = OPEN/CLOSE "<<delc_data_name<<"\n";
     out<<"\tTOP = OPEN/CLOSE "<<top_data_name<<"\n";
@@ -291,7 +306,7 @@ bool DefinitionExporter::save_node_coordinate(const string& prefix, Grid * grid)
 	}
 
 	//save the NACTIVECELLS and NCONNECTIONS  to the file
-	fout<<setprecision(PRECISION)<<total<<"\t"<<conNum<<endl;
+	fout<<total<<"\t"<<conNum<<endl;
 
 	vector< pair<long, Box *> > sorted_boxes;
 	sorted_boxes.reserve(total);
@@ -303,15 +318,31 @@ bool DefinitionExporter::save_node_coordinate(const string& prefix, Grid * grid)
 		sorted_boxes.push_back(make_pair(box->number+id_offset,box));
 	}
 
-	sort(sorted_boxes.begin(),sorted_boxes.end());
+	std::sort(sorted_boxes.begin(),sorted_boxes.end());
+
+	// add rotation here: Mar 15th 2016
+	double cx, cy, rotation;
+	ModflowGrid * mfgrid=qtree_grid->getModflowGrid();
+	mfgrid->getRotatePara(cx, cy, rotation);
+	double padfX[5] = {0}, padfY[5] = {0}, padfZ[4] = {0}, padfM[4] = {0}, ctrX[1] = {0}, ctrY[1] = {0};
+
 	//
 	for(vector< pair<long, Box *> >::iterator i=sorted_boxes.begin();i!=sorted_boxes.end();i++)
 	{
 		Box * box=i->second;
-		fout<<setprecision(PRECISION)<<i->first<<" "<<box->layer+id_offset
-            <<" "<<box->x<<" "<<box->y<<" "<<box->z<<" "
+
+		//rotate box
+		rotateOneBox_exporter(box, cx, cy, rotation, padfX, padfY, padfZ, padfM, ctrX, ctrY);
+
+		//fout<<i->first<<" "<<box->layer+id_offset
+        //    <<" "<<setprecision(PRECISION)<<box->x<<" "<<box->y<<" "<<box->z<<" "
+        //    <<box->dx<<" "<<box->dy<<" "<<box->dz<<"\n";
+		fout<<i->first<<" "<<box->layer+id_offset
+            <<" "<<setprecision(PRECISION)<<ctrX[0]<<" "<<ctrY[0]<<" "<<box->z<<" "
             <<box->dx<<" "<<box->dy<<" "<<box->dz<<"\n";
     }
+
+
 
     fout.close();
     cout<<"- Save data to file: "<<filename<<endl;

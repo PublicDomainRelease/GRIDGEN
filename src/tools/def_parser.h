@@ -1,4 +1,4 @@
-#pragma once
+//#pragma once
 #ifndef CUSG_DEF_PARSER_H
 #define CUSG_DEF_PARSER_H
 
@@ -41,6 +41,9 @@ protected:
     map<string, block_raw_data *> m_blocks;
 };
 
+
+
+template<typename T> block_raw_data* createBlockType(block_raw_data& block) { return new T(block); }
 
 } //namespace cusg
 

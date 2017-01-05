@@ -1494,6 +1494,12 @@ bool gridtoshape_raw_data::parse()
             without_inactive=false;
     }
 
+	value=name_value_map["concide"];
+    if(!value.empty()){
+        if(tolower(value.front())=="false")
+            concide=false;
+    }
+
 	value=name_value_map["feature_type"];
 	//if(!value.empty()) feature_type=atoi(value.front().c_str());
 	if(!value.empty()) feature_type = value.front();

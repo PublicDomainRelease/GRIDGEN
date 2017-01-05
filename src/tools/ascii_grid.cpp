@@ -92,6 +92,7 @@ double bilinear_interpolation(ascii_grid * grid, unsigned int i, unsigned int j,
 
 	if( grid->isvalid(ll)==false && grid->isvalid(lr)==false) x2=ll; //avoid interpolating invalid values...
 	else x2=(1-x)*ll+x*lr;
+	//else x2=(1-x)*ll+x*lr;
 
 	if( grid->isvalid(x1) && grid->isvalid(x2)==false ){ x2=x1;  }
 	if( grid->isvalid(x1)==false && grid->isvalid(x2) ){ x1=x2;  }

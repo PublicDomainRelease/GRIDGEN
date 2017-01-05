@@ -127,8 +127,9 @@ namespace cusg
     template < class real > bool Between (const real a[2], const real b[2],
                                           const real c[2])
     {
-        // If ab not vertical, check betweenness on x; else on y.
-        if (a[0] != b[0])
+		// If ab not vertical, check betweenness on x; else on y.
+		//if ( a[0]!=b[0] )
+		if (fabs(a[0] - b[0])>SMALLNUMBER)
             return ((a[0] <= c[0]) && (c[0] <= b[0])) ||
                 ((a[0] >= c[0]) && (c[0] >= b[0]));
         else
@@ -148,8 +149,8 @@ namespace cusg
                                                  const real b[2],
                                                  const real c[2])
     {
-        // If ab not vertical, check betweenness on x; else on y.
-        if (a[0] != b[0])
+		// If ab is not vertical enough, check betweenness on x; else on y.
+		if (fabs(a[0] - b[0])>SMALLNUMBER)
           {
               return ((a[0] < c[0]) && (c[0] < b[0])) ||
                   ((a[0] > c[0]) && (c[0] > b[0]));
@@ -223,32 +224,196 @@ namespace cusg
     (const double a[2], const double b[2], const double c[2], const double d[2],
      const double * p[2])
     {
-        int id=0;
-        if(AlmostEqual(a,c)){ p[id]=a; id++; }
+		int id = 0;
+		if (AlmostEqual(a, c))
+		{
+			p[0] = a;
 
-        if(AlmostEqual(a,d)){ p[id]=a; id++; }
-        if(id==2) return p[0]!=p[1];
+			//can only be b or d
+			if (AlmostEqual(b, d))
+			{
+				p[1] = b;
+				return true;
+			}
 
-        if(AlmostEqual(b,c)){ p[id]=b; id++; }
-        if(id==2) return p[0]!=p[1];
+			//
+			else if (Between_strict(a, b, d))
+			{
+				p[1] = d;
+				return true;
+			}
 
-        if(AlmostEqual(b,d)){ p[id]=b; id++; }
-        if(id==2) return p[0]!=p[1];
+			//
+			else if (Between_strict(c, d, b))
+			{
+				p[1] = b;
+				return true;
+			}
 
-        if( Between_strict(a,b,c) ){ p[id]=c; id++; }
-        if(id==2) return p[0]!=p[1];
+			//
+			return false;
+		}
 
-        if( Between_strict(a,b,d) ){ p[id]=d; id++; }
-        if(id==2) return p[0]!=p[1];
+		//ok, now a!=c
 
-        if( Between_strict(c,d,a) ){ p[id]=a; id++; }
-        if(id==2) return p[0]!=p[1];
 
-        if( Between_strict(c,d,b) ){ p[id]=b; id++; }
-        if(id==2) return p[0]!=p[1];
+		if (AlmostEqual(a, d)) //a==d
+		{
+			p[0] = a; //a==d and a!=c, so can only be ab, ac, 
 
-        return false;
-    }
+			if (AlmostEqual(b, c))
+			{
+				p[1] = b;
+				return true;
+			}
+
+			//
+			else if (Between_strict(a, b, c))
+			{
+				p[1] = c;
+				return true;
+			}
+
+			//
+			else if (Between_strict(c, d, b))
+			{
+				p[1] = b;
+				return true;
+			}
+
+			//
+			return false;
+		}
+
+		if (AlmostEqual(b, c))
+		{
+			p[id] = b; //b==c. a!=c, a!=d
+
+			//can only have a and d
+
+			//
+			if (Between_strict(a, b, d))
+			{
+				p[1] = d;
+				return true;
+			}
+
+			//
+			else if (Between_strict(c, d, a))
+			{
+				p[1] = a;
+				return true;
+			}
+
+			return false;
+		}
+
+		if (AlmostEqual(b, d))
+		{
+			p[id] = b; //b==d, b!=c. a!=c, a!=d
+
+			//can only have a and c
+
+			if (Between_strict(a, b, c))
+			{
+				p[1] = c;
+				return true;
+			}
+
+			//
+			else if (Between_strict(c, d, a))
+			{
+				p[1] = a;
+				return true;
+			}
+
+			return false;
+		}
+
+		if (Between_strict(a, b, c))
+		{
+			p[0] = c;
+			if (Between_strict(a, b, d)){
+				p[1] = d;
+				return true;
+			}
+
+			if (Between_strict(c, d, a)){
+				p[1] = a;
+				return true;
+			}
+
+			if (Between_strict(c, d, b)){
+				p[id] = b;
+				return true;
+			}
+
+			return false;
+		}
+
+		if (Between_strict(a, b, d))
+		{
+			p[0] = d;
+
+			if (Between_strict(a, b, c))
+			{
+				p[1] = c;
+				return true;
+			}
+
+			if (Between_strict(c, d, a)){ p[1] = a; return true; }
+
+			if (Between_strict(c, d, b)){ p[1] = b;  return true; }
+
+			return false;
+		}
+
+
+		if (Between_strict(c, d, a))
+		{
+			p[0] = a;
+
+			if (Between_strict(a, b, c))
+			{
+				p[1] = c;
+				return true;
+			}
+
+			if (Between_strict(a, b, d))
+			{
+				p[1] = d;
+				return true;
+			}
+
+			if (Between_strict(c, d, b)){ p[1] = b;  return true; }
+
+			return false;
+		}
+
+
+
+		if (Between_strict(c, d, b))
+		{
+			p[0] = b;
+			if (Between_strict(a, b, c))
+			{
+				p[1] = c;
+				return true;
+			}
+
+			if (Between_strict(a, b, d))
+			{
+				p[1] = d;
+				return true;
+			}
+
+			if (Between_strict(c, d, a)){ p[1] = a;  return true; }
+
+			return false;
+		}
+
+		return false;
+	}
 
     /*! \brief Checks if parallel segments intersect
 
